@@ -37,7 +37,7 @@ video_id = args.video_id
 if len(video_id) == 11:
     video_ids = [video_id]
 # List of videos
-if ",".in(video_id):
+if "," in video_id:
     video_ids = video_id.split(',')
 # Playlist
 if video_id[0:2] == "PL":

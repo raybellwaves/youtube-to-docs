@@ -1,12 +1,8 @@
 import os
-import sys
 import unittest
 from unittest.mock import MagicMock, patch
 
-# Add the parent directory to sys.path to import main
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-import main
+from youtube_to_docs import main
 
 
 class TestYoutubeToDocs(unittest.TestCase):
@@ -28,7 +24,7 @@ class TestYoutubeToDocs(unittest.TestCase):
     def tearDown(self):
         self.env_patcher.stop()
 
-    @patch("main.build")
+    @patch("youtube_to_docs.main.build")
     def test_get_youtube_service(self, mock_build):
         service = main.get_youtube_service()
         self.assertIsNotNone(service)
@@ -51,7 +47,7 @@ class TestYoutubeToDocs(unittest.TestCase):
         with self.assertRaises(SystemExit):
             main.resolve_video_ids("PL8ZxoInteClyHaiReuOHpv6Z4SPrXtYtW", None)
 
-    @patch("main.build")
+    @patch("youtube_to_docs.main.build")
     def test_resolve_video_ids_playlist(self, mock_build):
         mock_service = MagicMock()
         mock_request = MagicMock()
@@ -69,7 +65,7 @@ class TestYoutubeToDocs(unittest.TestCase):
         ids = main.resolve_video_ids("PL123", mock_service)
         self.assertEqual(ids, ["vid1", "vid2"])
 
-    @patch("main.build")
+    @patch("youtube_to_docs.main.build")
     def test_resolve_video_ids_channel_handle(self, mock_build):
         mock_service = MagicMock()
 
@@ -126,7 +122,7 @@ class TestYoutubeToDocs(unittest.TestCase):
         self.assertEqual(details[0], "Test Video")
         self.assertEqual(details[5], "0:01:10")  # Duration
 
-    @patch("main.ytt_api")
+    @patch("youtube_to_docs.main.ytt_api")
     def test_fetch_transcript(self, mock_ytt_api):
         mock_transcript_obj = MagicMock()
         mock_transcript_obj.to_raw_data.return_value = [
@@ -138,13 +134,13 @@ class TestYoutubeToDocs(unittest.TestCase):
         text = main.fetch_transcript("vid1")
         self.assertEqual(text, "Hello world")
 
-    @patch("main.ytt_api")
+    @patch("youtube_to_docs.main.ytt_api")
     def test_fetch_transcript_error(self, mock_ytt_api):
         mock_ytt_api.fetch.side_effect = Exception("Transcript disabled")
         text = main.fetch_transcript("vid1")
         self.assertIsNone(text)
 
-    @patch("main.genai.Client")
+    @patch("youtube_to_docs.main.genai.Client")
     def test_generate_summary_gemini(self, mock_client_cls):
         mock_client = mock_client_cls.return_value
         mock_resp = MagicMock()
@@ -154,8 +150,8 @@ class TestYoutubeToDocs(unittest.TestCase):
         summary = main.generate_summary("gemini-pro", "transcript", "Title", "url")
         self.assertEqual(summary, "Gemini Summary")
 
-    @patch("main.requests.post")
-    @patch("main.google.auth.default")
+    @patch("youtube_to_docs.main.requests.post")
+    @patch("youtube_to_docs.main.google.auth.default")
     def test_generate_summary_vertex(self, mock_auth, mock_post):
         mock_creds = MagicMock()
         mock_creds.token = "fake_token"
@@ -171,7 +167,7 @@ class TestYoutubeToDocs(unittest.TestCase):
         )
         self.assertEqual(summary, "Vertex Summary")
 
-    @patch("main.requests.post")
+    @patch("youtube_to_docs.main.requests.post")
     def test_generate_summary_bedrock(self, mock_post):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
@@ -185,7 +181,7 @@ class TestYoutubeToDocs(unittest.TestCase):
         )
         self.assertEqual(summary, "Bedrock Summary")
 
-    @patch("main.OpenAI")
+    @patch("youtube_to_docs.main.OpenAI")
     def test_generate_summary_foundry(self, mock_openai):
         mock_client = mock_openai.return_value
         mock_completion = MagicMock()

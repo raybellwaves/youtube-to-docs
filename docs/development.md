@@ -69,3 +69,11 @@ To run type checks:
 uv tool run ty check
 ```
 
+### Pre-commit
+
+To run pre-commit hook:
+
+```bash
+uv tool run pre-commit run --all-files
+```   
+

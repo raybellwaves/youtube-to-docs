@@ -77,3 +77,37 @@ To run pre-commit hook:
 uv tool run pre-commit run --all-files
 ```   
 
+
+## Release to PyPI
+
+To publish a new version of the package to PyPI, follow these steps:
+
+1.  **Build the package**:
+    This will create a `dist/` directory with the distribution files.
+    ```bash
+    uv tool run --from build pyproject-build
+    ```
+
+2.  **Upload to PyPI**:
+    Use `twine` to upload the distribution files. 
+    
+    If your `.pypirc` is already configured with your API key:
+    ```bash
+    uv tool run twine upload dist/*
+    ```
+
+### Quick Deploy (One-liner)
+
+To build and deploy in one command (requires `.pypirc` configuration):
+```bash
+Remove-Item -Recurse -Force dist; uv tool run --from build pyproject-build; uv tool run twine upload dist/*
+```
+
+## Continuous Deployment
+
+A manual GitHub Action is available to automate this process. 
+
+1. Ensure you have a `PYPI_API_TOKEN` secret configured in your repository settings.
+2. Go to the "Actions" tab in your repository.
+3. Select the "PyPI Publish" workflow.
+4. Click "Run workflow".

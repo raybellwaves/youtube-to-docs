@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools", "setuptools-scm"]
+requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "youtube-to-docs"
-version = "0.1.0"
+version = "0.0.2"
 description = "Convert YouTube videos to docs/sheets for discoverability"
 readme = "README.md"
 requires-python = ">=3.14"
@@ -18,6 +18,13 @@ dependencies = [
     "requests>=2.32.5",
     "youtube-transcript-api>=1.2.3",
 ]
+
+[project.scripts]
+youtube-to-docs = "youtube_to_docs.main:main"
+
+[tool.setuptools.packages.find]
+include = ["youtube_to_docs*"]
+exclude = ["tests*", "docs*", "summary-files*", "transcript-files*"]
 
 [tool.ruff]
 # Match the project's Python version requirement

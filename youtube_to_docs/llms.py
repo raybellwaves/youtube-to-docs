@@ -30,7 +30,7 @@ def normalize_model_name(model_name: str) -> str:
     return normalized
 
 
-def get_model_pricing(model_name: str) -> Tuple[float, float]:
+def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
     """
     Fetches model pricing from llm-prices repository.
     Returns (input_price_per_1m, output_price_per_1m).

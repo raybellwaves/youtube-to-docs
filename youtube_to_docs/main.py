@@ -10,27 +10,14 @@
 #     "requests>=2.32.5",
 #     "youtube-transcript-api>=1.2.3"
 # ///
-#
-# Run as:
-# uv run https://raw.githubusercontent.com/DoIT-Artifical-Intelligence/youtube-to-docs/refs/heads/main/youtube_to_docs/main.py --model gemini-3-flash-preview  # noqa
-# To test locally run one of:
-# uv run youtube-to-docs --model gemini-3-flash-preview
-# uv run python -m youtube_to_docs.main --model gemini-3-flash-preview
-# uv run youtube-to-docs --model vertex-claude-haiku-4-5@20251001
-# uv run youtube-to-docs --model bedrock-claude-haiku-4-5-20251001-v1
-# uv run youtube-to-docs --model bedrock-nova-2-lite-v1
-# uv run youtube-to-docs --model bedrock-claude-haiku-4-5-20251001
-# uv run youtube-to-docs --model foundry-gpt-5-mini
-
-
 import argparse
 import os
 import re
 import time
-from typing import List, Optional
 
 import polars as pl
 
+from youtube_to_docs.infographic import generate_infographic
 from youtube_to_docs.llms import generate_summary, get_model_pricing
 from youtube_to_docs.transcript import (
     fetch_transcript,
@@ -38,6 +25,7 @@ from youtube_to_docs.transcript import (
     get_youtube_service,
     resolve_video_ids,
 )
+from youtube_to_docs.tts import process_tts
 
 
 def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
@@ -64,6 +52,14 @@ def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
     # Add Summary File columns
     summary_files = [c for c in cols if c.startswith("Summary File ")]
     final_order.extend(sorted(summary_files))
+
+    # Add Summary Infographic File columns
+    infographic_files = [c for c in cols if c.startswith("Summary Infographic File ")]
+    final_order.extend(sorted(infographic_files))
+
+    # Add Audio File columns (from TTS)
+    audio_files = [c for c in cols if c.startswith("Summary Audio File ")]
+    final_order.extend(sorted(audio_files))
 
     # Add Summary Cost columns
     summary_costs = [c for c in cols if c.endswith(" summary cost ($)")]
@@ -115,30 +111,48 @@ def main() -> None:
             "Defaults to None."
         ),
     )
+    parser.add_argument(
+        "--tts",
+        default=None,
+        help=(
+            "The TTS model and voice to use. "
+            "Format: {model}-{voice} e.g. 'gemini-2.5-flash-preview-tts-Kore'"
+        ),
+    )
+    parser.add_argument(
+        "--infographic",
+        default=None,
+        help=(
+            "The image model to use for generating an infographic. "
+            "e.g. 'gemini-2.5-flash-image'"
+        ),
+    )
 
     args = parser.parse_args()
-    video_id_input: str = args.video_id
-    outfile: str = args.outfile
-    model_name: Optional[str] = args.model
+    video_id_input = args.video_id
+    outfile = args.outfile
+    model_name = args.model
+    tts_arg = args.tts
+    infographic_arg = args.infographic
 
     youtube_service = get_youtube_service()
 
     video_ids = resolve_video_ids(video_id_input, youtube_service)
 
     # Setup Output Directories
-    transcripts_dir: Optional[str] = None
-    summaries_dir: Optional[str] = None
     output_dir = os.path.dirname(outfile)
     if output_dir and not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
     base_dir = output_dir if output_dir else "."
     transcripts_dir = os.path.join(base_dir, "transcript-files")
     summaries_dir = os.path.join(base_dir, "summary-files")
+    infographics_dir = os.path.join(base_dir, "infographic-files")
     os.makedirs(transcripts_dir, exist_ok=True)
     os.makedirs(summaries_dir, exist_ok=True)
+    os.makedirs(infographics_dir, exist_ok=True)
 
     # Load existing CSV if it exists
-    existing_df: Optional[pl.DataFrame] = None
+    existing_df = None
     if os.path.exists(outfile):
         try:
             existing_df = pl.read_csv(outfile)
@@ -152,13 +166,18 @@ def main() -> None:
     if model_name:
         print(f"Summarizing using model: {model_name}")
 
-    rows: List[dict] = []
+    rows = []
     summary_col_name = f"Summary Text {model_name}" if model_name else "Summary Text"
     summary_file_col_name = (
         f"Summary File {model_name}" if model_name else "Summary File"
     )
     summary_cost_col_name = (
         f"{model_name} summary cost ($)" if model_name else "summary cost ($)"
+    )
+    infographic_col_name = (
+        f"Summary Infographic File {model_name} {infographic_arg}"
+        if model_name
+        else f"Summary Infographic File None {infographic_arg}"
     )
 
     for video_id in video_ids:
@@ -180,8 +199,18 @@ def main() -> None:
             or summary_col_name not in existing_row
             or not existing_row[summary_col_name]
         )
+        needs_infographic = infographic_arg is not None and (
+            existing_row is None
+            or infographic_col_name not in existing_row
+            or not existing_row[infographic_col_name]
+        )
 
-        if not needs_details and not needs_transcript and not needs_summary:
+        if (
+            not needs_details
+            and not needs_transcript
+            and not needs_summary
+            and not needs_infographic
+        ):
             print(
                 f"Skipping {video_id}: already exists in table with metadata "
                 "and summary."
@@ -203,12 +232,13 @@ def main() -> None:
                 _,
             ) = details
         else:
-            video_title = existing_row["Title"]  # type: ignore
-            description = existing_row["Description"]  # type: ignore
-            publishedAt = existing_row["Data Published"]  # type: ignore
-            channelTitle = existing_row["Channel"]  # type: ignore
-            tags = existing_row["Tags"]  # type: ignore
-            video_duration = existing_row["Duration"]  # type: ignore
+            assert existing_row is not None
+            video_title = existing_row["Title"]
+            description = existing_row["Description"]
+            publishedAt = existing_row["Data Published"]
+            channelTitle = existing_row["Channel"]
+            tags = existing_row["Tags"]
+            video_duration = existing_row["Duration"]
 
         print(f"Video Title: {video_title}")
 
@@ -246,11 +276,8 @@ def main() -> None:
             transcript, is_generated = result
 
             # Save Transcript
-            safe_title = (
-                re.sub(r'[\\/*?:"<>|]', "_", video_title)
-                .replace("\n", " ")
-                .replace("\r", "")
-            )
+            safe_title = re.sub(r'[\\/*?:"<>|]', "_", video_title).replace("\n", " ")
+            safe_title = safe_title.replace("\r", "")
             prefix = "youtube generated - " if is_generated else "human generated - "
             transcript_filename = f"{prefix}{video_id} - {safe_title}.txt"
             transcript_full_path = os.path.abspath(
@@ -285,11 +312,10 @@ def main() -> None:
                     print(f"Summary cost: ${summary_cost:.6f}")
 
             if summaries_dir and summary_text:
-                safe_title = (
-                    re.sub(r'[\\/*?:"<>|]', "_", video_title)
-                    .replace("\n", " ")
-                    .replace("\r", "")
+                safe_title = re.sub(r"[\\/*?:\"<>|]", "_", video_title).replace(
+                    "\n", " "
                 )
+                safe_title = safe_title.replace("\r", "")
                 summary_filename = (
                     f"{model_name} - {video_id} - {safe_title} - summary.md"
                 )
@@ -303,12 +329,14 @@ def main() -> None:
                 except OSError as e:
                     print(f"Error writing summary: {e}")
 
-        transcript_col_name = (
-            "Transcript File youtube generated"
-            if is_generated
-            else "Transcript File human generated"
-        )
+        # Prepare row data base
         row = existing_row.copy() if existing_row else {}
+
+        if is_generated:
+            transcript_col_name = "Transcript File youtube generated"
+        else:
+            transcript_col_name = "Transcript File human generated"
+
         row.update(
             {
                 "URL": url,
@@ -320,15 +348,66 @@ def main() -> None:
                 "Duration": video_duration,
                 "Transcript characters": len(transcript),
                 transcript_col_name: transcript_full_path,
-                summary_file_col_name: summary_full_path,
-                summary_col_name: summary_text,
-                summary_cost_col_name: summary_cost
-                if needs_summary
-                else row.get(summary_cost_col_name, float("nan")),
             }
         )
+
+        if needs_summary:
+            row[summary_file_col_name] = summary_full_path
+            row[summary_col_name] = summary_text
+            row[summary_cost_col_name] = summary_cost
+
+        # Infographic Generation
+        if infographic_arg:
+            summary_targets = []
+
+            # 1. Target the specific model requested (if any)
+            if model_name:
+                col = f"Summary Text {model_name}"
+                summary_targets.append((col, model_name, summary_text))
+
+            # 2. Target ALL existing summaries if no model specified
+            if not model_name and existing_row:
+                for k in existing_row.keys():
+                    if k.startswith("Summary Text ") and existing_row[k]:
+                        m_name = k[len("Summary Text ") :]
+                        summary_targets.append((k, m_name, existing_row[k]))
+
+            for sum_col, m_name, s_text in summary_targets:
+                if not s_text:
+                    continue
+
+                info_col = f"Summary Infographic File {m_name} {infographic_arg}"
+
+                # Check if already exists
+                if info_col in row and row[info_col]:
+                    continue
+
+                print(f"Generating infographic for model: {m_name}")
+                image_bytes = generate_infographic(infographic_arg, s_text, video_title)
+                if image_bytes:
+                    safe_title = re.sub(r"[\\/*?:\"<>|]", "_", video_title).replace(
+                        "\n", " "
+                    )
+                    safe_title = safe_title.replace("\r", "")
+                    infographic_filename = (
+                        f"{m_name} - {infographic_arg} - {video_id} - "
+                        f"{safe_title} - infographic.png"
+                    )
+                    infographic_full_path = os.path.abspath(
+                        os.path.join(infographics_dir, infographic_filename)
+                    )
+                    try:
+                        with open(infographic_full_path, "wb") as f:
+                            f.write(image_bytes)
+                        print(f"Saved infographic: {infographic_filename}")
+                        row[info_col] = infographic_full_path
+                    except OSError as e:
+                        print(f"Error writing infographic: {e}")
+
         rows.append(row)
         time.sleep(1)
+
+    final_df = None
 
     if rows:
         new_df = pl.DataFrame(rows)
@@ -340,13 +419,26 @@ def main() -> None:
             final_df = pl.concat([existing_remaining, new_df], how="diagonal")
         else:
             final_df = new_df
+    elif existing_df is not None:
+        final_df = existing_df
+
+    if final_df is not None and not final_df.is_empty():
+        should_save = bool(rows)
 
         if "Data Published" in final_df.columns:
             final_df = final_df.sort("Data Published", descending=True)
 
-        final_df = reorder_columns(final_df)
-        final_df.write_csv(outfile)
-        print(f"Successfully wrote {len(final_df)} rows to {outfile}")
+        if tts_arg:
+            print("Checking for TTS generation...")
+            final_df = process_tts(final_df, tts_arg, base_dir)
+            should_save = True
+
+        if should_save:
+            final_df = reorder_columns(final_df)
+            final_df.write_csv(outfile)
+            print(f"Successfully wrote {len(final_df)} rows to {outfile}")
+        else:
+            print("No new data to gather or all videos already processed.")
     else:
         print("No new data to gather or all videos already processed.")
 

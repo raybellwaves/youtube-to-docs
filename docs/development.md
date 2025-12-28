@@ -49,10 +49,16 @@ uv run --group test pytest
 
 ### Cleanup
 
-To delete the generated CSV file and transcript/summary directories:
+To delete the generated CSV file and all cached directories:
 
+**Bash:**
+```bash
+rm -rf youtube-docs.csv transcript-files/ summary-files/ audio-files/ infographic-files/
+```
+
+**PowerShell:**
 ```powershell
-Remove-Item -Path "youtube-docs.csv", "transcript-files", "summary-files" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "youtube-docs.csv", "transcript-files", "summary-files", "audio-files", "infographic-files" -Recurse -Force -ErrorAction SilentlyContinue
 ```
 
 ## Project Structure
@@ -104,8 +110,7 @@ To run pre-commit hook:
 
 ```bash
 uv tool run pre-commit run --all-files
-```   
-
+```
 
 ## Documentation
 

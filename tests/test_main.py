@@ -276,6 +276,68 @@ class TestMain(unittest.TestCase):
         for i, col in enumerate(expected_start):
             self.assertEqual(cols[i], col)
 
+    @patch("youtube_to_docs.main.get_youtube_service")
+    @patch("youtube_to_docs.main.resolve_video_ids")
+    @patch("youtube_to_docs.main.get_video_details")
+    @patch("youtube_to_docs.main.fetch_transcript")
+    @patch("youtube_to_docs.main.generate_summary")
+    @patch("youtube_to_docs.main.generate_infographic")
+    @patch("os.makedirs")
+    def test_infographic_storage(
+        self,
+        mock_makedirs,
+        mock_gen_info,
+        mock_gen_summary,
+        mock_fetch_trans,
+        mock_details,
+        mock_resolve,
+        mock_svc,
+    ):
+        mock_resolve.return_value = ["vid1"]
+        mock_details.return_value = (
+            "Title 1",
+            "Desc",
+            "2023-01-01",
+            "Chan",
+            "Tags",
+            "0:01:00",
+            "url1",
+        )
+        mock_fetch_trans.return_value = ("Transcript 1", False)
+        mock_gen_summary.return_value = ("Summary 1", 100, 50)
+        mock_gen_info.return_value = b"fake_image_bytes"
+
+        with patch(
+            "sys.argv",
+            [
+                "main.py",
+                "vid1",
+                "-o",
+                self.outfile,
+                "-m",
+                "gemini-test",
+                "--infographic",
+                "gemini-image",
+            ],
+        ):
+            with patch("builtins.open", mock_open()):
+                main.main()
+
+                # Verify infographic-files directory was created
+                any_infographic_dir_call = any(
+                    "infographic-files" in str(call)
+                    for call in mock_makedirs.call_args_list
+                )
+                self.assertTrue(any_infographic_dir_call)
+
+                # Verify infographic file path in CSV
+                df = pl.read_csv(self.outfile)
+                col_name = "Summary Infographic File gemini-test gemini-image"
+                self.assertIn(col_name, df.columns)
+                path = df[0, col_name]
+                self.assertIn("infographic-files", path)
+                self.assertTrue(path.endswith(".png"))
+
 
 if __name__ == "__main__":
     unittest.main()

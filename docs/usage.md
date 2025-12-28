@@ -28,7 +28,7 @@ youtube-to-docs
 
 **1. Process the default video and save to a custom CSV:**
 ```bash
-youtube-to-docs -o youtube-docs.csv
+youtube-to-docs -o my-docs.csv
 ```
 
 **2. Summarize a Playlist using Google Gemini:**

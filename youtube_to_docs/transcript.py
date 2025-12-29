@@ -1,4 +1,5 @@
 import os
+import subprocess
 import sys
 from typing import Any, List, Optional, Tuple, cast
 
@@ -6,8 +7,35 @@ import isodate
 from googleapiclient.discovery import Resource, build
 from youtube_transcript_api import YouTubeTranscriptApi
 
+from youtube_to_docs.llms import _query_llm
+
 # Global instance for transcript API
 ytt_api = YouTubeTranscriptApi()
+
+
+def _download_audio(video_id: str, output_dir: str = ".") -> Optional[str]:
+    """Downloads the audio of a YouTube video using yt-dlp."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    output_template = os.path.join(output_dir, f"{video_id}.%(ext)s")
+    command = [
+        "yt-dlp",
+        "-x",
+        "--audio-format",
+        "mp3",
+        "-o",
+        output_template,
+        url,
+    ]
+    try:
+        subprocess.run(command, check=True, capture_output=True, text=True)
+        # Find the downloaded file
+        for f in os.listdir(output_dir):
+            if f.startswith(video_id) and f.endswith(".mp3"):
+                return os.path.join(output_dir, f)
+    except subprocess.CalledProcessError as e:
+        print(f"Error downloading audio for {video_id}: {e.stderr}")
+        return None
+    return None
 
 
 def get_youtube_service() -> Optional[Resource]:
@@ -116,14 +144,44 @@ def get_video_details(
         return None
 
 
-def fetch_transcript(video_id: str) -> Optional[Tuple[str, bool]]:
-    """Fetches the transcript for a given video ID and returns (text, is_generated)."""
-    try:
-        transcript_obj = ytt_api.fetch(video_id, languages=("en", "en-US"))
-        is_generated = getattr(transcript_obj, "is_generated", False)
-        transcript_data = transcript_obj.to_raw_data()
-        transcript = " ".join([t["text"] for t in transcript_data])
-        return transcript, is_generated
-    except Exception as e:
-        print(f"Error fetching transcript for {video_id}: {e}")
-        return None
+def fetch_transcript(
+    video_id: str, model_name: str = "youtube"
+) -> Optional[Tuple[str, bool]]:
+    """
+    Fetches the transcript for a given video ID.
+    If a model_name is provided, it uses the model to transcribe the audio.
+    Otherwise, it uses the YouTube Transcript API.
+    Returns (text, is_generated).
+    """
+    if model_name != "youtube":
+        print(f"Downloading audio for {video_id} to be transcribed by {model_name}...")
+        audio_path = _download_audio(video_id)
+        if not audio_path:
+            return None
+
+        print(f"Transcribing {audio_path} with {model_name}...")
+        prompt = (
+            "I have included an audio file."
+            "\n\n"
+            "Can you please provide a transcript of the audio?"
+            "\n\n"
+            "The output should be a string of the transcript."
+            "\n\n"
+            "Please also identify the speakers in the transcript."
+        )
+        try:
+            transcript, _, _ = _query_llm(model_name, prompt, audio_path=audio_path)
+            return transcript, True  # Assuming model-generated is always "generated"
+        finally:
+            os.remove(audio_path)  # Clean up the audio file
+    else:
+        try:
+            transcript_obj = ytt_api.fetch(video_id, languages=("en", "en-US"))
+            is_generated = getattr(transcript_obj, "is_generated", False)
+            transcript_data = transcript_obj.to_raw_data()
+            transcript = " ".join([t["text"] for t in transcript_data])
+            return transcript, is_generated
+        except Exception as e:
+            print(f"Error fetching transcript for {video_id}: {e}")
+            return None
+    return None

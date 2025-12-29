@@ -129,6 +129,15 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "-t",
+        "--transcript",
+        default="youtube",
+        help=(
+            "The transcript model to use. "
+            "Defaults to 'youtube'. See --model for a list of supported models."
+        ),
+    )
+    parser.add_argument(
         "-o",
         "--outfile",
         default="youtube-docs.csv",
@@ -179,6 +188,7 @@ def main() -> None:
     model_names_arg = args.model
     tts_arg = args.tts
     infographic_arg = args.infographic
+    transcript_arg = args.transcript
 
     model_names = model_names_arg.split(",") if model_names_arg else []
 
@@ -351,7 +361,7 @@ def main() -> None:
                         transcript = f.read()
 
         if not transcript:
-            result = fetch_transcript(video_id)
+            result = fetch_transcript(video_id, model_name=transcript_arg)
             if not result:
                 continue
             transcript, is_generated = result
@@ -359,7 +369,10 @@ def main() -> None:
             # Save Transcript
             safe_title = re.sub(r'[\\/*?:"<>|]', "_", video_title).replace("\n", " ")
             safe_title = safe_title.replace("\r", "")
-            prefix = "youtube generated - " if is_generated else "human generated - "
+            if transcript_arg != "youtube":
+                prefix = f"{transcript_arg} generated - "
+            else:
+                prefix = "youtube generated - " if is_generated else "human generated - "
             transcript_filename = f"{prefix}{video_id} - {safe_title}.txt"
             transcript_full_path = os.path.abspath(
                 os.path.join(transcripts_dir, transcript_filename)
@@ -374,7 +387,9 @@ def main() -> None:
         # Prepare row data base
         row = existing_row.copy() if existing_row else {}
 
-        if is_generated:
+        if transcript_arg != "youtube":
+            transcript_col_name = f"Transcript File {transcript_arg} generated"
+        elif is_generated:
             transcript_col_name = "Transcript File youtube generated"
         else:
             transcript_col_name = "Transcript File human generated"

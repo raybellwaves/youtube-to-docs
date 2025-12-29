@@ -160,6 +160,10 @@ To build and deploy in one command (requires `.pypirc` configuration):
 Remove-Item -Recurse -Force dist; uv tool run --from build pyproject-build; uv tool run twine upload dist/*
 ```
 
+```bash
+rm -rf dist; uv tool run --from build pyproject-build; uv tool run twine upload dist/*
+```
+
 ## Continuous Deployment
 
 A manual GitHub Action is available to automate this process. 

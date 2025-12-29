@@ -75,6 +75,7 @@ The output CSV file contains a variety of columns depending on the arguments pro
 *   **{normalized_model} QA cost ($)**: The estimated API cost for Q&A generation.
 *   **Summary Text {model}**: The full text of the summary (also saved to the summary file).
 *   **{normalized_model} summary cost ($)**: The total estimated API cost for both speaker extraction and summarization.
+*   **Summary Infographic Cost {model} {infographic_model} ($)**: The estimated API cost for infographic generation.
 
 > **Note**: `{normalized_model}` refers to the model name with prefixes (like `vertex-`) and date suffixes removed for cleaner column headers.
 

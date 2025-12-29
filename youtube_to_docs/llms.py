@@ -1,6 +1,6 @@
 import os
 import re
-from typing import Tuple
+from typing import Any, Dict, List, Tuple, cast
 
 import google.auth
 import requests
@@ -38,8 +38,8 @@ def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
     Returns (input_price_per_1m, output_price_per_1m).
     """
     try:
-        prices = PRICES.get("prices", [])
-        aliases = PRICES.get("aliases", {})
+        prices = cast(List[Dict[str, Any]], PRICES.get("prices", []))
+        aliases = cast(Dict[str, str], PRICES.get("aliases", {}))
 
         # 1. Try exact match first
         for p in prices:

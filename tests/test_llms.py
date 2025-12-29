@@ -148,26 +148,25 @@ class TestQAProcessing(unittest.TestCase):
 
     def test_add_question_numbers_no_pipe_start(self):
         # Some LLMs might omit the starting pipe
-        input_table = (
-            "Who | What | Who | Ans |\n"
-            "---|---|---|---|\n"
-            "Me | Q1 | You | A1 |"
-        )
-        # Implementation adds pipe if missing for header/separator, and assumes pipe for data rows check
+        input_table = "Who | What | Who | Ans |\n---|---|---|---|\nMe | Q1 | You | A1 |"
+        # Implementation adds pipe if missing for header/separator, and assumes
+        # pipe for data rows check
         # Let's adjust expectation based on implementation:
         # Header: prepends "| question number |" (if starts with | already?)
-        # Implementation: if not startswith(|) -> prepend |. Then prepend "| question number "
+        # Implementation: if not startswith(|) -> prepend |. Then prepend
+        # "| question number "
         # Row 0: "Who..." -> "|Who..." -> "| question number |Who..."
-        
+
         expected = (
             "| question number |Who | What | Who | Ans |\n"
             "|---|---|---|---|---|\n"
             "| 1 | Me | Q1 | You | A1 |"
         )
-        # Note: The data row logic in my implementation checks `if stripped_line.startswith("|")`.
+        # Note: The data row logic in my implementation checks
+        # `if stripped_line.startswith("|")`.
         # If input is "Me | ...", it goes to else block: `if "|" in stripped_line`.
         # Then it does `new_lines.append(f"| {question_counter} | {stripped_line}")`
-        
+
         self.assertEqual(llms.add_question_numbers(input_table), expected)
 
     def test_add_question_numbers_empty(self):

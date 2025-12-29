@@ -361,9 +361,9 @@ def add_question_numbers(markdown_table: str) -> str:
                 # Ideally, we assume strict table format. If it doesn't start with |,
                 # it might be text outside the table.
                 # If we want to be safe, we only number rows starting with |
-                if "|" in stripped_line: # It has columns but maybe missing start pipe
-                     new_lines.append(f"| {question_counter} | {stripped_line}")
-                     question_counter += 1
+                if "|" in stripped_line:  # It has columns but maybe missing start pipe
+                    new_lines.append(f"| {question_counter} | {stripped_line}")
+                    question_counter += 1
                 else:
                     new_lines.append(line)
 

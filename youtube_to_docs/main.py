@@ -19,6 +19,7 @@ import polars as pl
 
 from youtube_to_docs.infographic import generate_infographic
 from youtube_to_docs.llms import (
+    extract_speakers,
     generate_summary,
     get_model_pricing,
     normalize_model_name,
@@ -65,13 +66,23 @@ def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
     audio_files = [c for c in cols if c.startswith("Summary Audio File ")]
     final_order.extend(sorted(audio_files))
 
-    # Add Summary Cost columns
-    summary_costs = [c for c in cols if c.endswith(" summary cost ($)")]
-    final_order.extend(sorted(summary_costs))
+    # Add Speakers columns
+    speakers = [c for c in cols if c.startswith("Speakers ")]
+    final_order.extend(sorted(speakers))
+
+    # Add Speaker Extraction Cost columns
+    speaker_costs = [
+        c for c in cols if c.endswith(" Speaker extraction cost ($)")
+    ]
+    final_order.extend(sorted(speaker_costs))
 
     # Add Summary Text columns
     summary_texts = [c for c in cols if c.startswith("Summary Text ")]
     final_order.extend(sorted(summary_texts))
+
+    # Add Summary Cost columns
+    summary_costs = [c for c in cols if c.endswith(" summary cost ($)")]
+    final_order.extend(sorted(summary_costs))
 
     # Add any remaining columns that weren't caught
     remaining = [c for c in cols if c not in final_order]
@@ -113,6 +124,8 @@ def main() -> None:
             "bedrock-claude-haiku-4-5-20251001-v1\n"
             "bedrock-nova-2-lite-v1\n"
             "Azure Foundry model (prefix with 'foundry-). e.g. 'foundry-gpt-5-mini'\n"
+            "Can also be a comma-separated list of models (e.g., "
+            "'gemini-3-flash-preview,bedrock-claude-haiku-4-5-20251001-v1').\n"
             "Defaults to None."
         ),
     )
@@ -353,9 +366,46 @@ def main() -> None:
         for model_name in model_names:
             summary_col_name = f"Summary Text {model_name}"
             summary_file_col_name = f"Summary File {model_name}"
+            speakers_col_name = f"Speakers {model_name}"
             summary_cost_col_name = (
                 f"{normalize_model_name(model_name)} summary cost ($)"
             )
+            speaker_cost_col_name = (
+                f"{normalize_model_name(model_name)} Speaker extraction cost ($)"
+            )
+
+            # Speaker Extraction
+            speakers_text = ""
+            speakers_input = 0
+            speakers_output = 0
+            speaker_cost = float("nan")
+
+            if speakers_col_name in row and row[speakers_col_name]:
+                speakers_text = row[speakers_col_name]
+                # If we have text but no cost, we can't easily recalculate exact tokens
+                # without re-running token counting, but we can estimate or leave as NaN.
+                # If we are backfilling cost, we will handle it below.
+            else:
+                print(f"Extracting speakers using model: {model_name}")
+                speakers_text, speakers_input, speakers_output = extract_speakers(
+                    model_name, transcript
+                )
+                row[speakers_col_name] = speakers_text
+                if (
+                    speakers_text.strip() == "nan"
+                    or speakers_text.strip() == 'float("nan")'
+                ):
+                    row[speakers_col_name] = float("nan")
+
+                # Calculate Speaker Cost immediately
+                input_price, output_price = get_model_pricing(model_name)
+                if input_price is not None and output_price is not None:
+                    speaker_cost = (speakers_input / 1_000_000) * input_price + (
+                        speakers_output / 1_000_000
+                    ) * output_price
+                    speaker_cost = round(speaker_cost, 2)
+                    row[speaker_cost_col_name] = speaker_cost
+                    print(f"Speaker extraction cost: ${speaker_cost:.2f}")
 
             # Check if we already have it in the row (from existing_row)
             if summary_col_name in row and row[summary_col_name]:
@@ -377,9 +427,39 @@ def main() -> None:
                         summary_cost = (est_input_tokens / 1_000_000) * input_price + (
                             est_output_tokens / 1_000_000
                         ) * output_price
+
+                        # Add speaker cost if we just generated them or if we can backfill it
+                        # If we just generated it, speakers_input > 0
+                        if speakers_input > 0 or speakers_output > 0:
+                            s_cost = (
+                                speakers_input / 1_000_000
+                            ) * input_price + (
+                                speakers_output / 1_000_000
+                            ) * output_price
+                            summary_cost += s_cost
+                        elif speaker_cost_col_name in row and not (
+                            isinstance(row[speaker_cost_col_name], float)
+                            and row[speaker_cost_col_name] != row[speaker_cost_col_name]
+                        ):
+                             summary_cost += row[speaker_cost_col_name]
+                        
                         summary_cost = round(summary_cost, 2)
                         row[summary_cost_col_name] = summary_cost
                         print(f"Estimated summary cost: ${summary_cost:.2f}")
+
+                elif speakers_input > 0 or speakers_output > 0:
+                    # Cost exists, but we generated speakers. Add that cost.
+                    input_price, output_price = get_model_pricing(model_name)
+                    if input_price is not None and output_price is not None:
+                        s_cost = (speakers_input / 1_000_000) * input_price + (
+                            speakers_output / 1_000_000
+                        ) * output_price
+                        current_cost = row[summary_cost_col_name]
+                        row[summary_cost_col_name] = round(current_cost + s_cost, 2)
+                        print(
+                            "Updated cost with speakers: "
+                            f"${row[summary_cost_col_name]:.2f}"
+                        )
                 continue
 
             print(f"Summarizing using model: {model_name}")
@@ -390,11 +470,19 @@ def main() -> None:
             summary_cost = float("nan")
             input_price, output_price = get_model_pricing(model_name)
             if input_price is not None and output_price is not None:
-                summary_cost = (input_tokens / 1_000_000) * input_price + (
-                    output_tokens / 1_000_000
+                # Add speaker tokens
+                total_input = input_tokens + speakers_input
+                total_output = output_tokens + speakers_output
+
+                summary_cost = (total_input / 1_000_000) * input_price + (
+                    total_output / 1_000_000
                 ) * output_price
                 summary_cost = round(summary_cost, 2)
                 print(f"Summary cost: ${summary_cost:.2f}")
+
+                # If we calculated speaker cost earlier, make sure it's in the row
+                # (it was added above)
+
 
             summary_full_path = ""
             if summaries_dir and summary_text:

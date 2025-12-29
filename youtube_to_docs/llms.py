@@ -96,20 +96,14 @@ def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
     return None, None
 
 
-def generate_summary(
-    model_name: str, transcript: str, video_title: str, url: str
-) -> Tuple[str, int, int]:
-    """Generates a summary and returns (summary_text, input_tokens, output_tokens)."""
-    summary_text = ""
+def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
+    """
+    Generic function to query the specified LLM model.
+    Returns (response_text, input_tokens, output_tokens).
+    """
+    response_text = ""
     input_tokens = 0
     output_tokens = 0
-    prompt = (
-        f"I have included a transcript for {url} ({video_title})"
-        "\n\n"
-        "Can you please summarize this?"
-        "\n\n"
-        f"{transcript}"
-    )
 
     if model_name.startswith("gemini"):
         try:
@@ -123,16 +117,16 @@ def generate_summary(
                     )
                 ],
             )
-            summary_text = response.text or ""
+            response_text = response.text or ""
             if response.usage_metadata:
                 input_tokens = response.usage_metadata.prompt_token_count or 0
                 output_tokens = response.usage_metadata.candidates_token_count or 0
         except KeyError:
             print("Error: GEMINI_API_KEY not found")
-            summary_text = "Error: GEMINI_API_KEY not found"
+            response_text = "Error: GEMINI_API_KEY not found"
         except Exception as e:
             print(f"Gemini API Error: {e}")
-            summary_text = f"Error: {e}"
+            response_text = f"Error: {e}"
 
     elif model_name.startswith("vertex"):
         try:
@@ -168,27 +162,27 @@ def generate_summary(
                         and isinstance(content_blocks, list)
                         and "text" in content_blocks[0]
                     ):
-                        summary_text = content_blocks[0]["text"]
+                        response_text = content_blocks[0]["text"]
                     else:
-                        summary_text = f"Unexpected response format: {response.text}"
+                        response_text = f"Unexpected response format: {response.text}"
 
                     usage = response_json.get("usage", {})
                     input_tokens = usage.get("input_tokens", 0)
                     output_tokens = usage.get("output_tokens", 0)
                 else:
-                    summary_text = (
+                    response_text = (
                         f"Vertex API Error {response.status_code}: {response.text}"
                     )
-                    print(summary_text)
+                    print(response_text)
 
         except KeyError:
             print(
                 "Error: PROJECT_ID environment variable required for GCPVertex models."
             )
-            summary_text = "Error: PROJECT_ID required"
+            response_text = "Error: PROJECT_ID required"
         except Exception as e:
             print(f"Vertex Request Error: {e}")
-            summary_text = f"Error: {e}"
+            response_text = f"Error: {e}"
 
     elif model_name.startswith("bedrock"):
         try:
@@ -228,17 +222,17 @@ def generate_summary(
                         and isinstance(content_blocks, list)
                         and "text" in content_blocks[0]
                     ):
-                        summary_text = content_blocks[0]["text"]
+                        response_text = content_blocks[0]["text"]
                     else:
-                        summary_text = f"Unexpected content format: {response_json}"
+                        response_text = f"Unexpected content format: {response_json}"
 
                     usage = response_json.get("usage", {})
                     input_tokens = usage.get("inputTokens", 0)
                     output_tokens = usage.get("outputTokens", 0)
                 except KeyError:
-                    summary_text = f"Unexpected response structure: {response_json}"
+                    response_text = f"Unexpected response structure: {response_json}"
             else:
-                summary_text = (
+                response_text = (
                     f"Bedrock API Error {response.status_code}: {response.text}"
                 )
         except KeyError:
@@ -246,10 +240,10 @@ def generate_summary(
                 "Error: AWS_BEARER_TOKEN_BEDROCK environment variable required for "
                 "AWS Bedrock models."
             )
-            summary_text = "Error: AWS_BEARER_TOKEN_BEDROCK required"
+            response_text = "Error: AWS_BEARER_TOKEN_BEDROCK required"
         except Exception as e:
             print(f"Bedrock Request Error: {e}")
-            summary_text = f"Error: {e}"
+            response_text = f"Error: {e}"
 
     elif model_name.startswith("foundry"):
         try:
@@ -268,7 +262,7 @@ def generate_summary(
                     }
                 ],
             )
-            summary_text = completion.choices[0].message.content
+            response_text = completion.choices[0].message.content
             if completion.usage:
                 input_tokens = completion.usage.prompt_tokens
                 output_tokens = completion.usage.completion_tokens
@@ -277,9 +271,50 @@ def generate_summary(
                 "Error: AZURE_FOUNDRY_ENDPOINT and AZURE_FOUNDRY_API_KEY "
                 "environment variables required."
             )
-            summary_text = "Error: Foundry vars required"
+            response_text = "Error: Foundry vars required"
         except Exception as e:
             print(f"Foundry Request Error: {e}")
-            summary_text = f"Error: {e}"
+            response_text = f"Error: {e}"
 
-    return summary_text, input_tokens, output_tokens
+    return response_text, input_tokens, output_tokens
+
+
+def generate_summary(
+    model_name: str, transcript: str, video_title: str, url: str
+) -> Tuple[str, int, int]:
+    """Generates a summary and returns (summary_text, input_tokens, output_tokens)."""
+    prompt = (
+        f"I have included a transcript for {url} ({video_title})"
+        "\n\n"
+        "Can you please summarize this?"
+        "\n\n"
+        f"{transcript}"
+    )
+    return _query_llm(model_name, prompt)
+
+
+def extract_speakers(model_name: str, transcript: str) -> Tuple[str, int, int]:
+    """
+    Extracts speakers from the transcript.
+    Returns (speakers_markdown, input_tokens, output_tokens).
+    """
+    prompt = (
+        "I have included a transcript."
+        "\n\n"
+        "Can you please identify the speakers in the transcript?"
+        "\n\n"
+        "The output should be a markdown string like"
+        "\n\n"
+        "Speaker 1 (title)"
+        "\n"
+        "Speaker 2 (title)"
+        "\n"
+        "etc."
+        "\n\n"
+        "If the speaker is unknown use the placeholder UNKNOWN and if the title "
+        "is unknown use the placeholder UNKNOWN. "
+        'If No speaker(s) are detected set it to float("nan").'
+        "\n\n"
+        f"Transcript: {transcript}"
+    )
+    return _query_llm(model_name, prompt)

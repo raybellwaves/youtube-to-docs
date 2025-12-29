@@ -41,6 +41,15 @@ youtube-to-docs PLGKTTEqwhiHHWO-jdxM1KtzTbWo6h0Ycl -m gemini-3-flash-preview,ver
 youtube-to-docs @mga-othercommittees6625 -m vertex-claude-haiku-4-5@20251001 --tts gemini-2.5-flash-preview-tts-Kore --infographic gemini-2.5-flash-image
 ```
 
+## Speaker Extraction
+
+When a model is specified using the `-m` or `--model` argument, the tool automatically performs speaker extraction before generating a summary.
+
+*   **Model Matching**: The extraction uses the same model as the summary. If multiple models are provided, each will perform its own extraction.
+*   **Structured Output**: It identifies speakers and their professional titles or roles (e.g., "Speaker 1 (Senator Katie Fry Hester, Co-Chair)").
+*   **Cost Tracking**: The cost of speaker extraction is tracked separately in the `{model} Speaker extraction cost ($)` column and included in the total `{model} summary cost ($)`.
+*   **Unknowns**: If a speaker or title cannot be identified, the tool uses the placeholder `UNKNOWN`. If no speakers are detected at all, the field is set to `NaN`.
+
 ## Library Usage
 
 While primarily a CLI, you can import core functions for custom workflows.
@@ -58,6 +67,7 @@ You might find other tools that download YouTube transcripts, but `youtube-to-do
 
 1.  **Multimodal Output**: It doesn't just stop at text.
     *   **Summaries**: Uses state-of-the-art LLMs to create concise summaries.
+    *   **Speaker Extraction**: Automatically identifies speakers and their titles/roles from the transcript.
     *   **Audio (TTS)**: Converts summaries into audio files, perfect for listening on the go.
     *   **Visuals (Infographics)**: Generates AI-created infographics to visually represent the content.
 

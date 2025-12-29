@@ -95,6 +95,22 @@ class TestLLMs(unittest.TestCase):
         self.assertEqual(in_tokens, 100)
         self.assertEqual(out_tokens, 50)
 
+    @patch("youtube_to_docs.llms.genai.Client")
+    def test_extract_speakers_gemini(self, mock_client_cls):
+        mock_client = mock_client_cls.return_value
+        mock_resp = MagicMock()
+        mock_resp.text = "Speaker 1 (Expert)\nSpeaker 2 (UNKNOWN)"
+        mock_resp.usage_metadata.prompt_token_count = 120
+        mock_resp.usage_metadata.candidates_token_count = 30
+        mock_client.models.generate_content.return_value = mock_resp
+
+        speakers, in_tokens, out_tokens = llms.extract_speakers(
+            "gemini-pro", "transcript content"
+        )
+        self.assertEqual(speakers, "Speaker 1 (Expert)\nSpeaker 2 (UNKNOWN)")
+        self.assertEqual(in_tokens, 120)
+        self.assertEqual(out_tokens, 30)
+
 
 class TestModelNormalization(unittest.TestCase):
     def test_prefixes(self):

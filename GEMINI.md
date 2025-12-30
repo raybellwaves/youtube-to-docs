@@ -20,7 +20,7 @@ Processes a YouTube video to generate transcripts, summaries, Q&A, and infograph
 
 1.  **Identify Intent**: When a user asks to "download a summary", "process a video", "get a transcript", "generate an infographic", or "create an audio summary" for a YouTube URL.
 2.  **Clarify Parameters**:
-    *   **Model**: If not specified, ask: "What model do you want to use for the summary?" (Suggest 'gemini-3-flash-preview' or similar if unsure).
+    *   **Model**: If not specified, ask: "What model do you want to use for the summary?".
     *   **Output Location**: If not specified, ask: "Where you want the output file saved? Is the default location (youtube-to-docs-artifacts/youtube-docs.csv) okay?"
     *   **Additional Features**: If appropriate, ask if they want to:
         *   Generate an infographic (needs `infographic_model`).

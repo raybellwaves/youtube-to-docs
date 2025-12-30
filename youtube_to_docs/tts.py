@@ -1,7 +1,7 @@
 import argparse
 import os
 import wave
-from typing import Optional, Tuple
+from typing import List, Optional, Tuple
 
 import polars as pl
 from google import genai
@@ -17,7 +17,9 @@ def wave_file(filename, pcm, channels=1, rate=24000, sample_width=2):
         wf.writeframes(pcm)
 
 
-def generate_speech(text: str, model_name: str, voice_name: str) -> bytes:
+def generate_speech(
+    text: str, model_name: str, voice_name: str, language_code: Optional[str] = None
+) -> bytes:
     """
     Generates speech from text using the specified Gemini model and voice.
     Returns the raw PCM audio bytes.
@@ -36,11 +38,12 @@ def generate_speech(text: str, model_name: str, voice_name: str) -> bytes:
             config=types.GenerateContentConfig(
                 response_modalities=["AUDIO"],
                 speech_config=types.SpeechConfig(
+                    language_code=language_code,
                     voice_config=types.VoiceConfig(
                         prebuilt_voice_config=types.PrebuiltVoiceConfig(
                             voice_name=voice_name,
                         )
-                    )
+                    ),
                 ),
             ),
         )
@@ -74,7 +77,12 @@ def parse_tts_arg(tts_arg: str) -> Tuple[str, str]:
     )  # Default to Kore if no hyphen (though user format implies hyphen)
 
 
-def process_tts(df: pl.DataFrame, tts_arg: str, base_dir: str = ".") -> pl.DataFrame:
+def process_tts(
+    df: pl.DataFrame,
+    tts_arg: str,
+    base_dir: str = ".",
+    languages: Optional[List[str]] = None,
+) -> pl.DataFrame:
     """
     Processes the DataFrame to generate TTS for each summary file found.
     """
@@ -94,11 +102,38 @@ def process_tts(df: pl.DataFrame, tts_arg: str, base_dir: str = ".") -> pl.DataF
 
     updated_df = df
 
+    # Map 2-letter language codes to BCP-47 codes supported by Gemini
+    lang_map = {
+        "en": "en-US",
+        "es": "es-US",
+        "fr": "fr-FR",
+        "de": "de-DE",
+        "hi": "hi-IN",
+        "pt": "pt-BR",
+        "zh": "cmn-CN",
+        "ja": "ja-JP",
+        "ko": "ko-KR",
+    }
+
     for col in summary_file_cols:
+        # Extract language from column name: e.g. "... (es)" -> "es"
+        col_lang = "en"
+        lang_code = None
+        if "(" in col and col.endswith(")"):
+            code = col.split("(")[-1].strip(")")
+            col_lang = code
+            lang_code = lang_map.get(code, "en-US")  # Default to en-US if unknown
+        else:
+            col_lang = "en"
+            lang_code = "en-US"  # Default for columns without language suffix
+
+        if languages and col_lang not in languages:
+            continue
+
         new_col_name = (
             col.replace("Summary File", "Summary Audio File") + f" {tts_arg} File"
         )
-        print(f"Processing column: {col} -> {new_col_name}")
+        print(f"Processing column: {col} -> {new_col_name} (Language: {lang_code})")
 
         new_col_values = []
 
@@ -137,7 +172,7 @@ def process_tts(df: pl.DataFrame, tts_arg: str, base_dir: str = ".") -> pl.DataF
                 new_col_values.append(None)
                 continue
 
-            pcm_data = generate_speech(text, model_name, voice_name)
+            pcm_data = generate_speech(text, model_name, voice_name, lang_code)
 
             if pcm_data:
                 try:

@@ -46,7 +46,7 @@ To delete the generated CSV file and all cached directories:
 
 **Bash:**
 ```bash
-rm -rf youtube-docs.csv transcript-files/ summary-files/ audio-files/ infographic-files/ speaker-extraction-files/
+rm -rf youtube-docs.csv audio-files/ transcript-files/ speaker-extraction-files/ qa-files/ summary-files/  infographic-files/ 
 ```
 
 **PowerShell:**

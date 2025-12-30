@@ -58,13 +58,14 @@ class TestMain(unittest.TestCase):
         df = pl.read_csv(self.outfile)
         self.assertEqual(len(df), 1)
         self.assertEqual(df[0, "URL"], "https://www.youtube.com/watch?v=vid1")
-        self.assertEqual(df[0, "Summary Text gemini-test"], "Summary 1")
-        self.assertIn("Summary File gemini-test", df.columns)
-        self.assertIn("gemini-test summary cost ($)", df.columns)
+        self.assertEqual(df[0, "Summary Text gemini-test from youtube"], "Summary 1")
+        self.assertIn("Summary File gemini-test from youtube", df.columns)
+        self.assertIn("gemini-test summary cost from youtube ($)", df.columns)
         self.assertAlmostEqual(
-            df[0, "gemini-test summary cost ($)"], 0.0
+            df[0, "gemini-test summary cost from youtube ($)"], 0.0
         )  # Since pricing is mocked to 0.0
         self.assertIn("Transcript File human generated", df.columns)
+        self.assertIn("Transcript characters from youtube", df.columns)
 
     @patch("youtube_to_docs.main.get_youtube_service")
     @patch("youtube_to_docs.main.resolve_video_ids")
@@ -94,8 +95,8 @@ class TestMain(unittest.TestCase):
                 "Tags": ["Tags"],
                 "Duration": ["0:01:00"],
                 "Transcript File human generated": ["path1"],
-                "Summary File gemini-test": ["spath1"],
-                "Summary Text gemini-test": ["Summary 1"],
+                "Summary File gemini-test from youtube": ["spath1"],
+                "Summary Text gemini-test from youtube": ["Summary 1"],
             }
         )
         initial_data.write_csv(self.outfile)
@@ -144,11 +145,11 @@ class TestMain(unittest.TestCase):
                 "Channel": ["Chan"],
                 "Tags": ["Tags"],
                 "Duration": ["0:01:00"],
-                "Transcript characters": [12],
+                "Transcript characters from youtube": [12],
                 "Transcript File human generated": ["path1"],
-                "Summary File gemini-test": ["spath1"],
-                "Summary Text gemini-test": ["Summary 1"],
-                "gemini-test summary cost ($)": [0.0],
+                "Summary File gemini-test from youtube": ["spath1"],
+                "Summary Text gemini-test from youtube": ["Summary 1"],
+                "gemini-test summary cost from youtube ($)": [0.0],
             }
         )
         initial_data.write_csv(self.outfile)
@@ -189,10 +190,10 @@ class TestMain(unittest.TestCase):
                 "Channel": ["Chan"],
                 "Tags": ["Tags"],
                 "Duration": ["0:01:00"],
-                "Transcript characters": [12],
+                "Transcript characters from youtube": [12],
                 "Transcript File human generated": ["transcript_vid1.txt"],
-                "Summary File gemini-test": ["spath1"],
-                "Summary Text gemini-test": ["Summary Gemini"],
+                "Summary File gemini-test from youtube": ["spath1"],
+                "Summary Text gemini-test from youtube": ["Summary Gemini"],
             }
         )
         initial_data.write_csv(self.outfile)
@@ -216,11 +217,11 @@ class TestMain(unittest.TestCase):
                 main.main()
 
         df = pl.read_csv(self.outfile)
-        self.assertIn("Summary Text haiku", df.columns)
-        self.assertIn("Summary File haiku", df.columns)
-        self.assertIn("haiku summary cost ($)", df.columns)
-        self.assertIn("Summary Text gemini-test", df.columns)
-        self.assertIn("Summary File gemini-test", df.columns)
+        self.assertIn("Summary Text haiku from youtube", df.columns)
+        self.assertIn("Summary File haiku from youtube", df.columns)
+        self.assertIn("haiku summary cost from youtube ($)", df.columns)
+        self.assertIn("Summary Text gemini-test from youtube", df.columns)
+        self.assertIn("Summary File gemini-test from youtube", df.columns)
         self.assertIn("Transcript File human generated", df.columns)
 
     @patch("youtube_to_docs.main.get_youtube_service")
@@ -272,7 +273,7 @@ class TestMain(unittest.TestCase):
             "Channel",
             "Tags",
             "Duration",
-            "Transcript characters",
+            "Transcript characters from youtube",
         ]
         for i, col in enumerate(expected_start):
             self.assertEqual(cols[i], col)
@@ -336,17 +337,28 @@ class TestMain(unittest.TestCase):
 
                 # Verify infographic file path in CSV
                 df = pl.read_csv(self.outfile)
-                col_name = "Summary Infographic File gemini-test gemini-image"
+                col_name = (
+                    "Summary Infographic File gemini-test from youtube gemini-image"
+                )
                 self.assertIn(col_name, df.columns)
                 path = df[0, col_name]
                 self.assertIn("infographic-files", path)
                 self.assertTrue(path.endswith(".png"))
 
                 # Verify Infographic Cost Column
-                cost_col = "Summary Infographic Cost gemini-test gemini-image ($)"
+                cost_col = (
+                    "Summary Infographic Cost gemini-test from youtube gemini-image ($)"
+                )
                 self.assertIn(cost_col, df.columns)
                 # Cost should be 0.0 because pricing is mocked to (0.0, 0.0)
                 self.assertEqual(df[0, cost_col], 0.0)
+
+                # Verify Speaker Columns (updated format)
+                self.assertIn("Speakers gemini-test from youtube", df.columns)
+                self.assertIn("Speakers File gemini-test from youtube", df.columns)
+                self.assertIn(
+                    "gemini-test Speaker extraction cost from youtube ($)", df.columns
+                )
 
     @patch("youtube_to_docs.main.get_youtube_service")
     @patch("youtube_to_docs.main.resolve_video_ids")
@@ -393,11 +405,12 @@ class TestMain(unittest.TestCase):
 
         self.assertTrue(os.path.exists(self.outfile))
         df = pl.read_csv(self.outfile)
-        self.assertIn("QA Text gemini-test", df.columns)
-        self.assertIn("QA File gemini-test", df.columns)
-        self.assertIn("gemini-test QA cost ($)", df.columns)
-        self.assertEqual(df[0, "QA Text gemini-test"], "QA Table")
-        self.assertIn("qa-files", df[0, "QA File gemini-test"])
+        self.assertIn("QA Text gemini-test from youtube", df.columns)
+        self.assertIn("QA File gemini-test from youtube", df.columns)
+        self.assertIn("gemini-test QA cost from youtube ($)", df.columns)
+        self.assertEqual(df[0, "QA Text gemini-test from youtube"], "QA Table")
+        self.assertIn("qa-files", df[0, "QA File gemini-test from youtube"])
+        self.assertIn("Speakers gemini-test from youtube", df.columns)
 
 
 if __name__ == "__main__":

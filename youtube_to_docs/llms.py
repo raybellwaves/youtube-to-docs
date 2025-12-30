@@ -247,6 +247,66 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
     return response_text, input_tokens, output_tokens
 
 
+def generate_transcript(
+    model_name: str, audio_path: str, url: str
+) -> Tuple[str, int, int]:
+    """
+    Generates a transcript from an audio file using the specified model.
+    Currently only supports Gemini models.
+    Returns (transcript_text, input_tokens, output_tokens).
+    """
+    if not model_name.startswith("gemini"):
+        return f"Error: STT not yet implemented for model {model_name}", 0, 0
+
+    try:
+        GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+        client = genai.Client(api_key=GEMINI_API_KEY)
+
+        with open(audio_path, "rb") as f:
+            audio_bytes = f.read()
+
+        prompt = (
+            f"Can you extract the transcript for {url} from this audio? "
+            "Start the response immediately with the transcript."
+        )
+
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_bytes(
+                        mime_type="audio/x-m4a",
+                        data=audio_bytes,
+                    ),
+                    types.Part.from_text(text=prompt),
+                ],
+            ),
+        ]
+
+        generate_content_config = types.GenerateContentConfig()
+
+        response = client.models.generate_content(
+            model=model_name,
+            contents=contents,
+            config=generate_content_config,
+        )
+
+        response_text = response.text or ""
+        input_tokens = 0
+        output_tokens = 0
+        if response.usage_metadata:
+            input_tokens = response.usage_metadata.prompt_token_count or 0
+            output_tokens = response.usage_metadata.candidates_token_count or 0
+
+        return response_text, input_tokens, output_tokens
+
+    except KeyError:
+        return "Error: GEMINI_API_KEY not found", 0, 0
+    except Exception as e:
+        print(f"Gemini STT Error: {e}")
+        return f"Error: {e}", 0, 0
+
+
 def generate_summary(
     model_name: str, transcript: str, video_title: str, url: str
 ) -> Tuple[str, int, int]:
@@ -325,10 +385,7 @@ def add_question_numbers(markdown_table: str) -> str:
                 new_lines.append(f"| {question_counter} {stripped_line}")
                 question_counter += 1
             else:
-                # Might be a continuation line or garbage, skip for now or append as is
-                # Ideally, we assume strict table format. If it doesn't start with |,
-                # it might be text outside the table.
-                # If we want to be safe, we only number rows starting with |
+                # Handle potential malformed table rows or text outside the table
                 if "|" in stripped_line:  # It has columns but maybe missing start pipe
                     new_lines.append(f"| {question_counter} | {stripped_line}")
                     question_counter += 1
@@ -359,6 +416,7 @@ def generate_qa(
         "| Speaker 1 | What is... | Speaker 2 | It is... |"
         "\n\n"
         "If the questioner or responder is unknown use the placeholder UNKNOWN. "
+        "Use people's name and titles in the questioner and responder fields. "
         'If no Q&A pairs are detected set it to float("nan").'
         "\n\n"
         f"Speakers detected: {speakers}"

@@ -3,11 +3,44 @@ import sys
 from typing import Any, List, Optional, Tuple, cast
 
 import isodate
+import static_ffmpeg
+import yt_dlp
 from googleapiclient.discovery import Resource, build
-from youtube_transcript_api import YouTubeTranscriptApi
+
+# Ensure ffmpeg is in path
+static_ffmpeg.add_paths()
+
+from youtube_transcript_api import YouTubeTranscriptApi  # noqa: E402
 
 # Global instance for transcript API
 ytt_api = YouTubeTranscriptApi()
+
+
+def extract_audio(video_id: str, output_dir: str) -> Optional[str]:
+    """Extracts audio from a YouTube video using yt-dlp."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    os.makedirs(output_dir, exist_ok=True)
+
+    ydl_opts = {
+        "format": "bestaudio[ext=m4a]",
+        "outtmpl": os.path.join(output_dir, "%(id)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if info:
+                # The filename returned by prepare_filename should have the
+                # correct extension
+                filename = ydl.prepare_filename(info)
+                # Ensure .m4a extension
+                base, _ = os.path.splitext(filename)
+                return os.path.abspath(f"{base}.m4a")
+    except Exception as e:
+        print(f"Error extracting audio for {video_id}: {e}")
+    return None
 
 
 def get_youtube_service() -> Optional[Resource]:

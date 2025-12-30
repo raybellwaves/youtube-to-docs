@@ -153,7 +153,7 @@ def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
     return df.select(final_order)
 
 
-def main() -> None:
+def main(args_list: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "video_id",
@@ -238,7 +238,7 @@ def main() -> None:
         help=("The target language (e.g. 'es', 'fr', 'en'). Default is 'en'."),
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(args_list)
     transcript_arg = args.transcript
     video_id_input = args.video_id
     outfile = args.outfile

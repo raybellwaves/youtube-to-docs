@@ -104,6 +104,24 @@ When a model is specified using the `-m` or `--model` argument, the tool automat
 *   **Cost Tracking**: The cost of speaker extraction is tracked separately in the `{model} Speaker extraction cost ($)` column and included in the total `{model} summary cost ($)`.
 *   **Unknowns**: If a speaker or title cannot be identified, the tool uses the placeholder `UNKNOWN`. If no speakers are detected at all, the field is set to `NaN`.
 
+## MCP Server
+
+This tool also functions as a Model Context Protocol (MCP) server, allowing it to be used as a tool by AI agents (like the Gemini CLI).
+
+The server exposes a `process_video` tool that mirrors the CLI functionality.
+
+### Configuration
+
+The repository includes a `gemini-extension.json` file at the root, which configures the MCP server for use with the Gemini CLI.
+
+### Usage
+
+Once the extension is registered with your agent, you can ask it to process videos using natural language:
+
+> "Save a summary of https://www.youtube.com/watch?v=KuPc06JgI_A"
+
+The agent will prompt you for any necessary details (like the model to use) and then execute the tool.
+
 ## Library Usage
 
 While primarily a CLI, you can import core functions for custom workflows.

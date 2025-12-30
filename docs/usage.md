@@ -122,6 +122,12 @@ Once the extension is registered with your agent, you can ask it to process vide
 
 The agent will prompt you for any necessary details (like the model to use) and then execute the tool.
 
+### Install as a Gemini CLI extension
+
+```bash
+gemini extensions install https://github.com/DoIT-Artificial-Intelligence/youtube-to-docs.git
+```
+
 ## Library Usage
 
 While primarily a CLI, you can import core functions for custom workflows.

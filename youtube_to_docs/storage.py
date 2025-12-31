@@ -69,18 +69,18 @@ class Storage(ABC):
         """Returns the full path or link to the file."""
         pass
 
-        @abstractmethod
-        def get_local_file(
-            self, path: str, download_dir: Optional[str] = None
-        ) -> Optional[str]:
-            """
-            Ensures the file is available locally.
-            If it's already local, returns the path.
-            If it's remote, downloads it to download_dir (or a temp file) and returns
-            the path.
-            Returns None if retrieval fails.
-            """
-            pass
+    @abstractmethod
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Ensures the file is available locally.
+        If it's already local, returns the path.
+        If it's remote, downloads it to download_dir (or a temp file) and returns
+        the path.
+        Returns None if retrieval fails.
+        """
+        pass
 
 
 class LocalStorage(Storage):

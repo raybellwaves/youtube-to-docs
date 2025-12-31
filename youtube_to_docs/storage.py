@@ -11,7 +11,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
-from googleapiclient.http import MediaIoBaseUpload
+from googleapiclient.http import MediaFileUpload, MediaIoBaseUpload
 
 
 class Storage(ABC):
@@ -25,6 +25,11 @@ class Storage(ABC):
     @abstractmethod
     def read_text(self, path: str) -> str:
         """Reads text content from a file."""
+        pass
+
+    @abstractmethod
+    def read_bytes(self, path: str) -> bytes:
+        """Reads byte content from a file."""
         pass
 
     @abstractmethod
@@ -43,8 +48,8 @@ class Storage(ABC):
         pass
 
     @abstractmethod
-    def save_dataframe(self, df: pl.DataFrame, path: str) -> None:
-        """Saves a DataFrame to a CSV file (or Sheet)."""
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
+        """Saves a DataFrame to a CSV file (or Sheet). Returns the path or link."""
         pass
 
     @abstractmethod
@@ -75,6 +80,10 @@ class LocalStorage(Storage):
         with open(path, "r", encoding="utf-8") as f:
             return f.read()
 
+    def read_bytes(self, path: str) -> bytes:
+        with open(path, "rb") as f:
+            return f.read()
+
     def write_text(self, path: str, content: str) -> str:
         with open(path, "w", encoding="utf-8") as f:
             f.write(content)
@@ -91,8 +100,9 @@ class LocalStorage(Storage):
         except Exception:
             return None
 
-    def save_dataframe(self, df: pl.DataFrame, path: str) -> None:
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
         df.write_csv(path)
+        return os.path.abspath(path)
 
     def ensure_directory(self, path: str) -> None:
         if path and not os.path.exists(path):
@@ -117,6 +127,7 @@ class GoogleDriveStorage(Storage):
     def __init__(self, output_arg: str):
         self.creds = self._get_creds()
         self.service = build("drive", "v3", credentials=self.creds)
+        self.sheets_service = build("sheets", "v4", credentials=self.creds)
         self.root_folder_id = self._resolve_root_folder_id(output_arg)
         # Cache for folder IDs to avoid constant lookups
         self.folder_cache: dict[str, str] = {}
@@ -185,6 +196,9 @@ class GoogleDriveStorage(Storage):
         However, main.py passes paths joined with os.path.sep.
         We need to handle normalization.
         """
+        if path.startswith("http"):
+            raise ValueError(f"Cannot resolve parent folder for URL: {path}")
+
         parts = Path(path).parts
         parent_id = self.root_folder_id
 
@@ -291,8 +305,6 @@ class GoogleDriveStorage(Storage):
             # But we are in read_text
             request = self.service.files().get_media(fileId=file_id)
             fh = io.BytesIO()
-            downloader = MediaIoBaseUpload(fh, mimetype="text/plain")
-            # Wait, MediaIoBaseUpload is for upload.
             from googleapiclient.http import MediaIoBaseDownload
 
             downloader = MediaIoBaseDownload(fh, request)
@@ -300,6 +312,25 @@ class GoogleDriveStorage(Storage):
             while done is False:
                 status, done = downloader.next_chunk()
             return fh.getvalue().decode("utf-8")
+
+    def read_bytes(self, path: str) -> bytes:
+        if path.startswith("http"):
+            file_id = self._extract_id_from_url(path)
+        else:
+            file_id = self._get_file_id(path)
+
+        if not file_id:
+            raise FileNotFoundError(f"File not found: {path}")
+
+        request = self.service.files().get_media(fileId=file_id)
+        fh = io.BytesIO()
+        from googleapiclient.http import MediaIoBaseDownload
+
+        downloader = MediaIoBaseDownload(fh, request)
+        done = False
+        while done is False:
+            status, done = downloader.next_chunk()
+        return fh.getvalue()
 
     def write_text(self, path: str, content: str) -> str:
         parent_id = self._get_parent_id(path)
@@ -315,7 +346,7 @@ class GoogleDriveStorage(Storage):
         }
 
         fh = io.BytesIO(content.encode("utf-8"))
-        media = MediaIoBaseUpload(fh, mimetype="text/plain", resumable=True)
+        media = MediaIoBaseUpload(fh, mimetype="text/markdown", resumable=True)
 
         if existing_id:
             # Update
@@ -351,9 +382,10 @@ class GoogleDriveStorage(Storage):
         }
 
         fh = io.BytesIO(content)
-        media = MediaIoBaseUpload(
-            fh, mimetype="application/octet-stream", resumable=True
-        )
+        mime_type = "application/octet-stream"
+        if filename.endswith(".wav"):
+            mime_type = "audio/wav"
+        media = MediaIoBaseUpload(fh, mimetype=mime_type, resumable=True)
 
         if existing_id:
             file_metadata.pop("parents", None)
@@ -395,7 +427,7 @@ class GoogleDriveStorage(Storage):
             print(f"Error loading dataframe from drive: {e}")
             return None
 
-    def save_dataframe(self, df: pl.DataFrame, path: str) -> None:
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
         parent_id = self._get_parent_id(path)
         filename = Path(path).stem  # youtube-docs
 
@@ -417,11 +449,63 @@ class GoogleDriveStorage(Storage):
         if existing_id:
             # Update
             file_metadata.pop("parents", None)
-            self.service.files().update(
-                fileId=existing_id, body=file_metadata, media_body=media
-            ).execute()
+            file = (
+                self.service.files()
+                .update(
+                    fileId=existing_id,
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, webViewLink",
+                )
+                .execute()
+            )
         else:
-            self.service.files().create(body=file_metadata, media_body=media).execute()
+            file = (
+                self.service.files()
+                .create(
+                    body=file_metadata,
+                    media_body=media,
+                    fields="id, webViewLink",
+                )
+                .execute()
+            )
+            # Freeze the first row and first two columns for new sheets
+            try:
+                spreadsheet_id = file.get("id")
+                # Fetch the spreadsheet to get the actual sheetId of the first sheet
+                spreadsheet = (
+                    self.sheets_service.spreadsheets()
+                    .get(spreadsheetId=spreadsheet_id)
+                    .execute()
+                )
+                sheets = spreadsheet.get("sheets", [])
+                if sheets:
+                    first_sheet_id = sheets[0].get("properties", {}).get("sheetId")
+                    if first_sheet_id is not None:
+                        requests = [
+                            {
+                                "updateSheetProperties": {
+                                    "properties": {
+                                        "sheetId": first_sheet_id,
+                                        "gridProperties": {
+                                            "frozenRowCount": 1,
+                                            "frozenColumnCount": 2,
+                                        },
+                                    },
+                                    "fields": (
+                                        "gridProperties(frozenRowCount,"
+                                        "frozenColumnCount)"
+                                    ),
+                                }
+                            }
+                        ]
+                        self.sheets_service.spreadsheets().batchUpdate(
+                            spreadsheetId=spreadsheet_id, body={"requests": requests}
+                        ).execute()
+            except Exception as e:
+                print(f"Warning: Could not freeze header row/columns: {e}")
+
+        return file.get("webViewLink")
 
     def ensure_directory(self, path: str) -> None:
         # _get_parent_id creates directories as side effect
@@ -437,7 +521,7 @@ class GoogleDriveStorage(Storage):
 
         file_metadata = {"name": filename, "parents": [parent_id]}
 
-        media = MediaIoBaseUpload(local_path, mimetype=content_type, resumable=True)
+        media = MediaFileUpload(local_path, mimetype=content_type, resumable=True)
 
         if existing_id:
             file_metadata.pop("parents", None)

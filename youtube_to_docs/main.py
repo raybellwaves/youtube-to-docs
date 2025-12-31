@@ -37,6 +37,7 @@ from youtube_to_docs.transcript import (
     resolve_video_ids,
 )
 from youtube_to_docs.tts import process_tts
+from youtube_to_docs.video import process_videos
 
 
 def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
@@ -212,7 +213,7 @@ def main() -> None:
         help=(
             "The TTS model and voice to use. "
             "Format: {model}-{voice} e.g. 'gemini-2.5-flash-preview-tts-Kore' \n"
-            "or 'gemini-2.5-pro-preview-tts'"
+            "or 'gemini-2.5-pro-preview-tts-Kore'"
         ),
     )
     parser.add_argument(
@@ -238,6 +239,11 @@ def main() -> None:
         default="en",
         help=("The target language (e.g. 'es', 'fr', 'en'). Default is 'en'."),
     )
+    parser.add_argument(
+        "--combine-infographic-audio",
+        action="store_true",
+        help="Combine the infographic and audio summary into a video file.",
+    )
 
     args = parser.parse_args()
     transcript_arg = args.transcript
@@ -249,6 +255,7 @@ def main() -> None:
     no_youtube_summary = args.no_youtube_summary
     language_arg = args.language
 
+    combine_info_audio = args.combine_infographic_audio
     model_names = model_names_arg.split(",") if model_names_arg else []
     languages = language_arg.split(",") if language_arg else ["en"]
 
@@ -1301,10 +1308,15 @@ def main() -> None:
             )
             should_save = True
 
+        if combine_info_audio:
+            print("Checking for Video generation...")
+            final_df = process_videos(final_df, storage, base_dir)
+            should_save = True
+
         if should_save:
             final_df = reorder_columns(final_df)
-            storage.save_dataframe(final_df, outfile_path)
-            print(f"Successfully wrote {len(final_df)} rows to {outfile}")
+            saved_path = storage.save_dataframe(final_df, outfile_path)
+            print(f"Successfully wrote {len(final_df)} rows to {saved_path}")
         else:
             print("No new data to gather or all videos already processed.")
     else:

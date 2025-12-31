@@ -171,16 +171,7 @@ def process_tts(
             try:
                 # Read summary from storage
                 # summary_path comes from row, might be Link or Path.
-                text = ""
-                if summary_path.startswith("http"):
-                    print(
-                        "Skipping summary (URL not supported for reading yet): "
-                        f"{summary_path}"
-                    )
-                    new_col_values.append(None)
-                    continue
-                else:
-                    text = storage.read_text(summary_path)
+                text = storage.read_text(summary_path)
 
             except Exception as e:
                 print(f"Error reading summary file {summary_path}: {e}")

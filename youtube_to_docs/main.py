@@ -28,8 +28,7 @@ from youtube_to_docs.llms import (
     get_model_pricing,
     normalize_model_name,
 )
-from youtube_to_docs.m365_storage import M365Storage
-from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage
+from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage, M365Storage
 from youtube_to_docs.transcript import (
     extract_audio,
     fetch_transcript,

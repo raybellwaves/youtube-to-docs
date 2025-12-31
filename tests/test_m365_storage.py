@@ -5,12 +5,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import polars as pl
 from kiota_abstractions.api_error import APIError
 
-from youtube_to_docs.m365_storage import M365Storage
+from youtube_to_docs.storage import M365Storage
 
 
 class TestM365Storage(unittest.TestCase):
-    @patch("youtube_to_docs.m365_storage.M365Storage._get_creds")
-    @patch("youtube_to_docs.m365_storage.GraphServiceClient")
+    @patch("youtube_to_docs.storage.M365Storage._get_creds")
+    @patch("youtube_to_docs.storage.GraphServiceClient")
     def setUp(self, mock_graph_client, mock_get_creds):
         # Mock the credentials and GraphServiceClient
         mock_get_creds.return_value = MagicMock()

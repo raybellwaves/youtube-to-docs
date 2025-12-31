@@ -30,6 +30,8 @@ dependencies = [
     "yt-dlp>=2025.12.8",
     "static-ffmpeg>=2.13",
     "mcp>=1.25.0",
+    "msal>=1.30.0",
+    "msgraph-sdk>=1.1.0",
 ]
 
 [project.scripts]

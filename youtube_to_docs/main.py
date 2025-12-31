@@ -28,6 +28,7 @@ from youtube_to_docs.llms import (
     get_model_pricing,
     normalize_model_name,
 )
+from youtube_to_docs.m365_storage import M365Storage
 from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage
 from youtube_to_docs.transcript import (
     extract_audio,
@@ -173,7 +174,12 @@ def main(args_list: list[str] | None = None) -> None:
         "-o",
         "--outfile",
         default="youtube-to-docs-artifacts/youtube-docs.csv",
-        help=("Can be one of: \nLocal file path to save the output CSV file."),
+        help=(
+            "Can be one of: \n"
+            "Local file path to save the output CSV file.\n"
+            "'workspace' for Google Drive.\n"
+            "'m365' for Microsoft 365."
+        ),
     )
     parser.add_argument(
         "-t",
@@ -265,7 +271,12 @@ def main(args_list: list[str] | None = None) -> None:
 
     # Setup Output Directories
     # Setup Storage
-    if outfile == "workspace" or (
+    if outfile == "m365":
+        print("Using Microsoft 365 storage.")
+        storage = M365Storage(outfile)
+        outfile_path = "youtube-docs.csv"
+        base_dir = "."
+    elif outfile == "workspace" or (
         len(outfile) > 20
         and "." not in outfile
         and "/" not in outfile

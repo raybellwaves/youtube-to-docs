@@ -19,7 +19,7 @@ youtube-to-docs
 | Argument | Description | Default | Example |
 | :--- | :--- | :--- | :--- |
 | `video_id` | The YouTube content to process. Can be a **Video ID**, **Playlist ID** (starts with `PL`), **Channel Handle** (starts with `@`), or a **comma-separated list** of Video IDs. | `atmGAHYpf_c` | `youtube-to-docs @mychannel` |
-| `-o`, `--outfile` | Path to save the output CSV file. | `youtube-to-docs-artifacts/youtube-docs.csv` | `-o my-data.csv` |
+| `-o`, `--outfile` | Path to save the output CSV file. <br> Can also be `'workspace'` for Google Drive or `'m365'` for Microsoft 365. <br> See [M365 Setup Guide](m365_setup.md) for configuration. | `youtube-to-docs-artifacts/youtube-docs.csv` | `-o my-data.csv` |
 | `-t`, `--transcript` | The transcript source to use. Can be `'youtube'` (default) to fetch existing YouTube transcripts, or an AI model name to perform STT on extracted audio. | `youtube` | `-t gemini-2.0-flash-exp` |
 | `-m`, `--model` | The LLM(s) to use for speaker extraction, Q&A generation, and summarization. Supports models from Google (Gemini), Vertex AI, AWS Bedrock, and Azure Foundry. **Can be a comma-separated list.** | `None` | `-m gemini-3-flash-preview,vertex-claude-haiku-4-5@20251001` |
 | `--tts` | The TTS model and voice to use for generating audio summaries. Format: `{model}-{voice}`. | `None` | `--tts gemini-2.5-flash-preview-tts-Kore` |

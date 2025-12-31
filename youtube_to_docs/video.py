@@ -96,18 +96,26 @@ def process_videos(
                 # Use audio filename as base, but ensure it ends in .mp4
                 # We need to handle if audio_path_remote is a URL or path
                 if audio_path_remote.startswith("http"):
-                    # Extract ID or name if possible, or fallback to row Title?
-                    # Storage abstraction usually doesn't give filename from URL
-                    # easily without metadata. But if we wrote it, we might know.
-                    # Let's try to get a safe name from the Title if possible,
-                    # or fallback to a hash/ID
-                    if "Title" in row and row["Title"]:
+                    # Try to extract video ID from URL
+                    video_id = None
+                    if "URL" in row and row["URL"]:
+                        import re
+
+                        match = re.search(r"v=([a-zA-Z0-9_-]+)", row["URL"])
+                        if match:
+                            video_id = match.group(1)
+
+                    if video_id:
+                        video_filename = f"{video_id}.mp4"
+                    elif "Title" in row and row["Title"]:
                         safe_title = "".join(
                             [c if c.isalnum() else "_" for c in row["Title"]]
                         )
                         video_filename = f"{safe_title}.mp4"
                     else:
-                        video_filename = "video_output.mp4"
+                        import uuid
+
+                        video_filename = f"video_{uuid.uuid4()}.mp4"
                 else:
                     audio_basename = os.path.basename(audio_path_remote)
                     video_filename = os.path.splitext(audio_basename)[0] + ".mp4"

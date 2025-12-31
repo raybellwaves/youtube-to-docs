@@ -69,6 +69,26 @@ class Storage(ABC):
         """Returns the full path or link to the file."""
         pass
 
+        @abstractmethod
+        def get_local_file(
+            self, path: str, download_dir: Optional[str] = None
+        ) -> Optional[str]:
+            """
+
+            Ensures the file is available locally.
+
+            If it's already local, returns the path.
+
+            If it's remote, downloads it to download_dir (or a temp file) and returns
+
+            the path.
+
+            Returns None if retrieval fails.
+
+            """
+
+            pass
+
 
 class LocalStorage(Storage):
     """Implementation of Storage for the local filesystem."""
@@ -118,6 +138,13 @@ class LocalStorage(Storage):
     def get_full_path(self, path: str) -> str:
         return os.path.abspath(path)
 
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        if self.exists(path):
+            return os.path.abspath(path)
+        return None
+
 
 class GoogleDriveStorage(Storage):
     """Implementation of Storage for Google Drive."""
@@ -131,8 +158,8 @@ class GoogleDriveStorage(Storage):
         self.root_folder_id = self._resolve_root_folder_id(output_arg)
         # Cache for folder IDs to avoid constant lookups
         self.folder_cache: dict[str, str] = {}
-        # Simple cache for file existence/IDs (path -> id)
-        self.file_cache: dict[str, str] = {}
+        # Cache for file metadata (path -> dict)
+        self.file_cache: dict[str, dict] = {}
 
     def _get_creds(self):
         creds = None
@@ -241,7 +268,7 @@ class GoogleDriveStorage(Storage):
 
         return parent_id
 
-    def _get_file_id(self, path: str) -> Optional[str]:
+    def _get_file_metadata(self, path: str) -> Optional[dict]:
         if path in self.file_cache:
             return self.file_cache[path]
 
@@ -263,9 +290,13 @@ class GoogleDriveStorage(Storage):
         )
         files = results.get("files", [])
         if files:
-            self.file_cache[path] = files[0]["id"]
-            return files[0]["id"]
+            self.file_cache[path] = files[0]
+            return files[0]
         return None
+
+    def _get_file_id(self, path: str) -> Optional[str]:
+        metadata = self._get_file_metadata(path)
+        return metadata["id"] if metadata else None
 
     def _extract_id_from_url(self, url: str) -> Optional[str]:
         # Typical patterns:
@@ -370,6 +401,10 @@ class GoogleDriveStorage(Storage):
                 .execute()
             )
 
+        # Update cache
+        if file.get("id"):
+            self.file_cache[path] = file
+
         return file.get("webViewLink")
 
     def write_bytes(self, path: str, content: bytes) -> str:
@@ -409,6 +444,10 @@ class GoogleDriveStorage(Storage):
                 .create(body=file_metadata, media_body=media, fields="id, webViewLink")
                 .execute()
             )
+
+        # Update cache
+        if file.get("id"):
+            self.file_cache[path] = file
 
         return file.get("webViewLink")
 
@@ -509,6 +548,10 @@ class GoogleDriveStorage(Storage):
             except Exception as e:
                 print(f"Warning: Could not freeze header row/columns: {e}")
 
+        # Update cache
+        if file.get("id"):
+            self.file_cache[path] = file
+
         return file.get("webViewLink")
 
     def ensure_directory(self, path: str) -> None:
@@ -546,10 +589,41 @@ class GoogleDriveStorage(Storage):
                 .execute()
             )
 
+        # Update cache
+        if file.get("id"):
+            self.file_cache[target_path] = file
+
         return file.get("webViewLink")
 
     def get_full_path(self, path: str) -> str:
         """For Drive, returns the path (or link if possible/cached)."""
         if path.startswith("http"):
             return path
+
+        metadata = self._get_file_metadata(path)
+        if metadata and "webViewLink" in metadata:
+            return metadata["webViewLink"]
         return path
+
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        if not self.exists(path):
+            return None
+
+        if not download_dir:
+            import tempfile
+
+            download_dir = tempfile.gettempdir()
+
+        filename = Path(path).name
+        local_path = os.path.join(download_dir, filename)
+
+        try:
+            data = self.read_bytes(path)
+            with open(local_path, "wb") as f:
+                f.write(data)
+            return local_path
+        except Exception as e:
+            print(f"Error downloading file {path} to local: {e}")
+            return None

@@ -69,12 +69,10 @@ class TestTTS(unittest.TestCase):
         # Verify
         self.assertEqual(audio_data, b"")
 
-    @patch("youtube_to_docs.tts.wave_file")
     @patch("youtube_to_docs.tts.generate_speech")
     def test_process_tts(
         self,
         mock_generate_speech,
-        mock_wave_file,
     ):
         # Setup DataFrame
         df = pl.DataFrame(
@@ -111,7 +109,8 @@ class TestTTS(unittest.TestCase):
         mock_storage.write_bytes.return_value = "/saved/path.wav"
         mock_storage.get_full_path.return_value = "/full/path/summary2 - tts-arg.wav"
 
-        mock_generate_speech.return_value = b"audio_bytes"
+        # Even length bytes for 16-bit PCM
+        mock_generate_speech.return_value = b"1234"
 
         # Execute
         updated_df = process_tts(df, "tts-arg", mock_storage, "/tmp")
@@ -124,14 +123,15 @@ class TestTTS(unittest.TestCase):
             "Summary text", "tts", "arg", "en-US"
         )
 
-        # Check wave_file called once
-        mock_wave_file.assert_called_once()
-
         # Check storage writes
         mock_storage.write_bytes.assert_called_once()
         args, _ = mock_storage.write_bytes.call_args
         self.assertTrue(args[0].endswith("summary1 - tts-arg.wav"))
-        self.assertEqual(args[1], b"")
+
+        # Verify content is a valid WAV container
+        wav_content = args[1]
+        self.assertTrue(wav_content.startswith(b"RIFF"))
+        self.assertIn(b"WAVE", wav_content)
 
         # Check DataFrame content
         new_col = updated_df["Summary Audio File 1 tts-arg File"]
@@ -140,12 +140,10 @@ class TestTTS(unittest.TestCase):
         # if available
         self.assertEqual(new_col[1], "/full/path/summary2 - tts-arg.wav")
 
-    @patch("youtube_to_docs.tts.wave_file")
     @patch("youtube_to_docs.tts.generate_speech")
     def test_process_tts_with_language(
         self,
         mock_generate_speech,
-        mock_wave_file,
     ):
         # Setup DataFrame with language-suffixed column
         df = pl.DataFrame(
@@ -166,7 +164,8 @@ class TestTTS(unittest.TestCase):
         mock_storage.read_text.return_value = "Texto resumen"
         mock_storage.write_bytes.return_value = "/saved/es.wav"
 
-        mock_generate_speech.return_value = b"audio_bytes"
+        # Even bytes
+        mock_generate_speech.return_value = b"1234"
 
         # Execute
         process_tts(df, "tts-arg", mock_storage, "/tmp")
@@ -175,6 +174,11 @@ class TestTTS(unittest.TestCase):
         mock_generate_speech.assert_called_once_with(
             "Texto resumen", "tts", "arg", "es-US"
         )
+
+        # Verify write was called
+        mock_storage.write_bytes.assert_called_once()
+        args, _ = mock_storage.write_bytes.call_args
+        self.assertTrue(args[1].startswith(b"RIFF"))
 
 
 if __name__ == "__main__":

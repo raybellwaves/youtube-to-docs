@@ -573,32 +573,16 @@ def main() -> None:
                         if local_audio_path and os.path.exists(local_audio_path)
                         else None
                     )
-                    if (
-                        not audio_input_path
-                        and audio_file_path
-                        and isinstance(storage, LocalStorage)
-                    ):
-                        audio_input_path = audio_file_path
+
+                    if not audio_input_path and audio_file_path:
+                        # Try to get it locally via storage abstraction
+                        print(f"Retrieving audio file locally: {audio_file_path}")
+                        audio_input_path = storage.get_local_file(
+                            audio_file_path, download_dir=local_audio_dir
+                        )
 
                     if not audio_input_path:
-                        if audio_file_path and storage.exists(audio_file_path):
-                            print(
-                                "Downloading audio from storage for STT: "
-                                f"{audio_file_path}"
-                            )
-                            # Ensure local_audio_dir exists or use a tempfile
-                            local_download_path = os.path.join(
-                                local_audio_dir, f"{video_id}.m4a"
-                            )
-                            audio_data = storage.read_bytes(audio_file_path)
-                            with open(local_download_path, "wb") as f:
-                                f.write(audio_data)
-                            audio_input_path = local_download_path
-                        else:
-                            print(
-                                "Error: Audio file not found for STT: "
-                                f"{audio_file_path}"
-                            )
+                        print(f"Error: Audio file not found for STT: {audio_file_path}")
                     else:
                         print(
                             f"Generating transcript using model: {transcript_arg} "
@@ -873,8 +857,8 @@ def main() -> None:
                         # We try to read.
                         try:
                             row[summary_col_name] = storage.read_text(str(path))
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Warning: Failed to read summary file {path}: {e}")
 
                 if not row.get(summary_col_name):
                     print(f"Summarizing using model: {model_name} ({language})")
@@ -946,12 +930,16 @@ def main() -> None:
                     # Load YT speakers from file/row
                     if row.get(yt_speakers_file_col_name):
                         path = row[yt_speakers_file_col_name]
-                        if path:
+                        if path and storage.exists(str(path)):
                             try:
                                 yt_speakers_text = storage.read_text(str(path))
                                 row[yt_speakers_col_name] = yt_speakers_text
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print(
+                                    "Warning: Failed to read YouTube speakers file "
+                                    f"{path}: {e}"
+                                )
+
                     elif row.get(yt_speakers_col_name):
                         yt_speakers_text = row[yt_speakers_col_name]
 
@@ -1058,9 +1046,11 @@ def main() -> None:
                         if path:
                             try:
                                 row[yt_qa_col_name] = storage.read_text(str(path))
-                            except Exception:
-                                pass
-
+                            except Exception as e:
+                                print(
+                                    "Warning: Failed to read YouTube Q&A file "
+                                    f"{path}: {e}"
+                                )
                     if not row.get(yt_qa_col_name):
                         print(
                             f"Generating Q&A using model: {model_name} "
@@ -1144,8 +1134,11 @@ def main() -> None:
                         if path:
                             try:
                                 row[yt_sum_col_name] = storage.read_text(str(path))
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                print(
+                                    "Warning: Failed to read YouTube summary file "
+                                    f"{path}: {e}"
+                                )
 
                     if not row.get(yt_sum_col_name):
                         print(

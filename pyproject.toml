@@ -33,7 +33,6 @@ dependencies = [
 
 [project.scripts]
 youtube-to-docs = "youtube_to_docs.main:main"
-youtube-to-video = "youtube_to_docs.video:main"
 
 [tool.setuptools.packages.find]
 include = ["youtube_to_docs*"]

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Optional
 
 import polars as pl
+import requests
+from msal import PublicClientApplication, SerializableTokenCache
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -641,5 +643,217 @@ class GoogleDriveStorage(Storage):
                 f.write(data)
             return local_path
         except (HttpError, OSError) as e:
+            print(f"Error downloading file {path} to local: {e}")
+            return None
+
+
+class M365Storage(Storage):
+    """Implementation of Storage for Microsoft 365 (OneDrive via Graph API)."""
+
+    GRAPH_BASE = "https://graph.microsoft.com/v1.0"
+    SCOPES = ["Files.ReadWrite"]
+
+    def __init__(self, output_arg: str):
+        self.client_id = os.environ.get("M365_CLIENT_ID")
+        if not self.client_id:
+            raise ValueError("M365_CLIENT_ID must be set to use m365 storage.")
+        self.tenant_id = os.environ.get("M365_TENANT_ID", "common")
+        self.token_cache = SerializableTokenCache()
+        self.cache_path = Path.home() / ".m365_token_cache.bin"
+        if self.cache_path.exists():
+            self.token_cache.deserialize(self.cache_path.read_text())
+        self.app = PublicClientApplication(
+            self.client_id,
+            authority=f"https://login.microsoftonline.com/{self.tenant_id}",
+            token_cache=self.token_cache,
+        )
+        self.access_token = self._get_access_token()
+        self.root_item_id = self._resolve_root_item_id(output_arg)
+        self.folder_cache: dict[str, str] = {}
+        self.file_cache: dict[str, dict] = {}
+
+    def _get_access_token(self) -> str:
+        accounts = self.app.get_accounts()
+        result = None
+        if accounts:
+            result = self.app.acquire_token_silent(self.SCOPES, account=accounts[0])
+        if not result:
+            flow = self.app.initiate_device_flow(scopes=self.SCOPES)
+            if "user_code" not in flow:
+                raise RuntimeError("Failed to initiate device flow for m365 auth.")
+            print(flow["message"])
+            result = self.app.acquire_token_by_device_flow(flow)
+        if "access_token" not in result:
+            raise RuntimeError(f"Failed to authenticate to m365: {result}")
+        if self.token_cache.has_state_changed:
+            self.cache_path.write_text(self.token_cache.serialize())
+        return result["access_token"]
+
+    def _headers(self) -> dict[str, str]:
+        return {"Authorization": f"Bearer {self.access_token}"}
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        headers = kwargs.pop("headers", {})
+        headers.update(self._headers())
+        response = requests.request(method, url, headers=headers, **kwargs)
+        if response.status_code == 401:
+            self.access_token = self._get_access_token()
+            headers = kwargs.pop("headers", {})
+            headers.update(self._headers())
+            response = requests.request(method, url, headers=headers, **kwargs)
+        response.raise_for_status()
+        return response
+
+    def _resolve_root_item_id(self, output_arg: str) -> str:
+        if output_arg in {"workspace", "m365"}:
+            folder_name = "youtube-to-docs-artifacts"
+            query_url = (
+                f"{self.GRAPH_BASE}/me/drive/root/children"
+                f"?$filter=name eq '{folder_name}'"
+            )
+            results = self._request("GET", query_url).json().get("value", [])
+            if results:
+                print(f"Using existing m365 folder: {folder_name} ({results[0]['id']})")
+                return results[0]["id"]
+            create_url = f"{self.GRAPH_BASE}/me/drive/root/children"
+            payload = {
+                "name": folder_name,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "rename",
+            }
+            folder = self._request("POST", create_url, json=payload).json()
+            print(f"Created m365 folder: {folder_name} ({folder.get('id')})")
+            return folder["id"]
+        return output_arg
+
+    def _item_path(self, path: str) -> str:
+        parts = Path(path).parts
+        cleaned = "/".join(p for p in parts if p not in {".", ""})
+        if not cleaned:
+            return ""
+        return cleaned
+
+    def _get_item_metadata(self, path: str) -> Optional[dict]:
+        if path in self.file_cache:
+            return self.file_cache[path]
+        if path.startswith("http"):
+            return None
+        item_path = self._item_path(path)
+        if not item_path:
+            return None
+        url = (
+            f"{self.GRAPH_BASE}/me/drive/items/{self.root_item_id}:/{item_path}"
+        )
+        try:
+            item = self._request("GET", url).json()
+        except requests.HTTPError as exc:
+            if exc.response is not None and exc.response.status_code == 404:
+                return None
+            raise
+        self.file_cache[path] = item
+        return item
+
+    def _ensure_folder(self, path: str) -> str:
+        parts = Path(path).parts
+        parent_id = self.root_item_id
+        for part in parts:
+            if part in {".", ""}:
+                continue
+            cache_key = f"{parent_id}/{part}"
+            if cache_key in self.folder_cache:
+                parent_id = self.folder_cache[cache_key]
+                continue
+            url = f"{self.GRAPH_BASE}/me/drive/items/{parent_id}/children"
+            existing = self._request("GET", url).json().get("value", [])
+            folder = next((item for item in existing if item["name"] == part), None)
+            if folder is None:
+                payload = {
+                    "name": part,
+                    "folder": {},
+                    "@microsoft.graph.conflictBehavior": "rename",
+                }
+                folder = self._request("POST", url, json=payload).json()
+            parent_id = folder["id"]
+            self.folder_cache[cache_key] = parent_id
+        return parent_id
+
+    def exists(self, path: str) -> bool:
+        if path.startswith("http"):
+            return True
+        return self._get_item_metadata(path) is not None
+
+    def read_text(self, path: str) -> str:
+        return self.read_bytes(path).decode("utf-8")
+
+    def read_bytes(self, path: str) -> bytes:
+        item = self._get_item_metadata(path)
+        if not item:
+            raise FileNotFoundError(f"File not found: {path}")
+        content_url = f"{self.GRAPH_BASE}/me/drive/items/{item['id']}/content"
+        response = self._request("GET", content_url)
+        return response.content
+
+    def write_text(self, path: str, content: str) -> str:
+        return self.write_bytes(path, content.encode("utf-8"))
+
+    def write_bytes(self, path: str, content: bytes) -> str:
+        parent_path = str(Path(path).parent)
+        if parent_path and parent_path != ".":
+            self._ensure_folder(parent_path)
+        item_path = self._item_path(path)
+        upload_url = (
+            f"{self.GRAPH_BASE}/me/drive/items/{self.root_item_id}:/{item_path}:/content"
+        )
+        item = self._request("PUT", upload_url, data=content).json()
+        self.file_cache[path] = item
+        return item.get("webUrl", path)
+
+    def load_dataframe(self, path: str) -> Optional[pl.DataFrame]:
+        try:
+            return pl.read_csv(io.BytesIO(self.read_bytes(path)))
+        except Exception:
+            return None
+
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
+        buffer = io.BytesIO()
+        df.write_csv(buffer)
+        return self.write_bytes(path, buffer.getvalue())
+
+    def ensure_directory(self, path: str) -> None:
+        if path:
+            self._ensure_folder(path)
+
+    def upload_file(
+        self, local_path: str, target_path: str, content_type: Optional[str] = None
+    ) -> str:
+        with open(local_path, "rb") as f:
+            content = f.read()
+        return self.write_bytes(target_path, content)
+
+    def get_full_path(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        item = self._get_item_metadata(path)
+        if item and "webUrl" in item:
+            return item["webUrl"]
+        return path
+
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        if not self.exists(path):
+            return None
+        if not download_dir:
+            import tempfile
+
+            download_dir = tempfile.gettempdir()
+        filename = Path(path).name
+        local_path = os.path.join(download_dir, filename)
+        try:
+            data = self.read_bytes(path)
+            with open(local_path, "wb") as f:
+                f.write(data)
+            return local_path
+        except (requests.HTTPError, OSError) as e:
             print(f"Error downloading file {path} to local: {e}")
             return None

@@ -37,6 +37,8 @@ def get_creds():
     os.environ.get("CI") is not None, reason="Skipping this test on CI environment"
 )
 def test_google_drive_upload():
+    if not CREDS_FILE.exists():
+        pytest.skip(f"Client secrets not found at {CREDS_FILE.absolute()}")
     markdown_text = "This is markdown. \n\n # Header 1 \n\n ## Header 2 \n\n plain text"
     file_name = "test"
     try:
@@ -68,6 +70,8 @@ def test_google_drive_upload():
     os.environ.get("CI") is not None, reason="Skipping this test on CI environment"
 )
 def test_google_sheet_upload():
+    if not CREDS_FILE.exists():
+        pytest.skip(f"Client secrets not found at {CREDS_FILE.absolute()}")
     csv_content = "data\nrow 1\nrow 2"
     file_name = "test_sheet"
     try:

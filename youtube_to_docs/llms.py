@@ -1,3 +1,4 @@
+"""LLM integrations for summarization, Q&A, transcripts, and speaker extraction."""
 import os
 import re
 from typing import Any, Dict, List, Tuple, cast
@@ -13,11 +14,7 @@ from youtube_to_docs.prices import PRICES
 
 
 def normalize_model_name(model_name: str) -> str:
-    """
-    Normalizes a model name by stripping prefixes and suffixes.
-    Suffixes handled: @20251001, -20251001-v1, -v1.
-    Prefixes handled: vertex-, bedrock-, foundry-.
-    """
+    """Strip provider prefixes and version suffixes from a model name."""
     # Strip prefixes
     normalized = model_name
     prefixes = ["vertex-", "bedrock-", "foundry-"]
@@ -33,10 +30,7 @@ def normalize_model_name(model_name: str) -> str:
 
 
 def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
-    """
-    Fetches model pricing from local prices.py.
-    Returns (input_price_per_1m, output_price_per_1m).
-    """
+    """Return (input_price_per_1m, output_price_per_1m) from local pricing data."""
     try:
         prices = cast(List[Dict[str, Any]], PRICES.get("prices", []))
         aliases = cast(Dict[str, str], PRICES.get("aliases", {}))
@@ -65,10 +59,7 @@ def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
 
 
 def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
-    """
-    Generic function to query the specified LLM model.
-    Returns (response_text, input_tokens, output_tokens).
-    """
+    """Query the specified LLM and return (response_text, input_tokens, output_tokens)."""
     response_text = ""
     input_tokens = 0
     output_tokens = 0
@@ -250,11 +241,7 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
 def generate_transcript(
     model_name: str, audio_path: str, url: str, language: str = "en"
 ) -> Tuple[str, int, int]:
-    """
-    Generates a transcript from an audio file using the specified model.
-    Currently only supports Gemini models.
-    Returns (transcript_text, input_tokens, output_tokens).
-    """
+    """Generate an audio transcript with Gemini and return text plus token counts."""
     if not model_name.startswith("gemini"):
         return f"Error: STT not yet implemented for model {model_name}", 0, 0
 
@@ -326,10 +313,7 @@ def generate_summary(
 
 
 def extract_speakers(model_name: str, transcript: str) -> Tuple[str, int, int]:
-    """
-    Extracts speakers from the transcript.
-    Returns (speakers_markdown, input_tokens, output_tokens).
-    """
+    """Extract speakers from a transcript and return text plus token counts."""
     prompt = (
         "I have included a transcript."
         "\n\n"
@@ -353,14 +337,11 @@ def extract_speakers(model_name: str, transcript: str) -> Tuple[str, int, int]:
 
 
 def add_question_numbers(markdown_table: str) -> str:
-    """
-    Adds a 'question number' column to the markdown table.
-    """
+    """Add a question number column to a markdown Q&A table."""
     lines = markdown_table.strip().split("\n")
     if not lines:
         return markdown_table
 
-    # Check if it's a valid table (has header and separator)
     if len(lines) < 2:
         return markdown_table
 
@@ -373,23 +354,18 @@ def add_question_numbers(markdown_table: str) -> str:
             continue
 
         if i == 0:
-            # Header row
-            # Ensure it starts with | (some LLMs might miss it)
             if not stripped_line.startswith("|"):
                 stripped_line = "|" + stripped_line
             new_lines.append(f"| question number {stripped_line}")
         elif i == 1 and ("---" in stripped_line or "-|-" in stripped_line):
-            # Separator row
             if not stripped_line.startswith("|"):
                 stripped_line = "|" + stripped_line
             new_lines.append(f"|---{stripped_line}")
         else:
-            # Data row
             if stripped_line.startswith("|"):
                 new_lines.append(f"| {question_counter} {stripped_line}")
                 question_counter += 1
             else:
-                # Handle potential malformed table rows or text outside the table
                 if "|" in stripped_line:  # It has columns but maybe missing start pipe
                     new_lines.append(f"| {question_counter} | {stripped_line}")
                     question_counter += 1

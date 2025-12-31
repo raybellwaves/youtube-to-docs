@@ -1,3 +1,4 @@
+"""Helpers for YouTube metadata, audio extraction, and transcript retrieval."""
 import os
 import sys
 from typing import Any, List, Optional, Tuple, cast
@@ -15,12 +16,11 @@ from youtube_transcript_api import (
     YouTubeTranscriptApi,
 )
 
-# Ensure ffmpeg is in path
 static_ffmpeg.add_paths()
 
 
 def extract_audio(video_id: str, output_dir: str) -> Optional[str]:
-    """Extracts audio from a YouTube video using yt-dlp."""
+    """Extract m4a audio from a YouTube video using yt-dlp."""
     url = f"https://www.youtube.com/watch?v={video_id}"
     os.makedirs(output_dir, exist_ok=True)
 
@@ -35,10 +35,7 @@ def extract_audio(video_id: str, output_dir: str) -> Optional[str]:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=True)
             if info:
-                # The filename returned by prepare_filename should have the
-                # correct extension
                 filename = ydl.prepare_filename(info)
-                # Ensure .m4a extension
                 base, _ = os.path.splitext(filename)
                 return os.path.abspath(f"{base}.m4a")
     except Exception as e:
@@ -116,9 +113,9 @@ def get_video_details(
     video_id: str, youtube_service: Optional[Resource]
 ) -> Optional[Tuple[str, str, str, str, str, str, str]]:
     """
-    Fetches video metadata from YouTube Data API.
-    Returns a tuple of (video_title, description, publishedAt,
-    channelTitle, tags, video_duration, url).
+    Fetch video metadata from the YouTube Data API.
+    Returns (video_title, description, published_at, channel_title, tags,
+    video_duration, url), or None when details are unavailable.
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
 
@@ -154,17 +151,14 @@ def get_video_details(
 
 def fetch_transcript(video_id: str, language: str = "en") -> Optional[Tuple[str, bool]]:
     """
-    Fetches the transcript for a given video ID.
-    Tries to find a transcript in the requested language.
-    If not found, tries to translate an English transcript (or any available)
-    to the requested language.
-    Returns (text, is_generated).
+    Fetch the transcript for a given video ID.
+    Returns (text, is_generated). Attempts the requested language first, then
+    falls back to translated English or any available transcript.
     """
     try:
         transcript_list = YouTubeTranscriptApi().list(video_id)
         transcript_obj = None
 
-        # 1. Try exact match (manual)
         try:
             transcript_obj = transcript_list.find_manually_created_transcript(
                 [language]
@@ -172,14 +166,12 @@ def fetch_transcript(video_id: str, language: str = "en") -> Optional[Tuple[str,
         except Exception:
             pass
 
-        # 2. Try exact match (generated)
         if not transcript_obj:
             try:
                 transcript_obj = transcript_list.find_generated_transcript([language])
             except Exception:
                 pass
 
-        # 3. Try translating from English (manual)
         if not transcript_obj:
             try:
                 en_transcript = transcript_list.find_manually_created_transcript(
@@ -189,7 +181,6 @@ def fetch_transcript(video_id: str, language: str = "en") -> Optional[Tuple[str,
             except Exception:
                 pass
 
-        # 4. Try translating from English (generated)
         if not transcript_obj:
             try:
                 en_transcript = transcript_list.find_generated_transcript(
@@ -199,7 +190,6 @@ def fetch_transcript(video_id: str, language: str = "en") -> Optional[Tuple[str,
             except Exception:
                 pass
 
-        # 5. Try translating from ANY available
         if not transcript_obj:
             try:
                 # Just take the first one

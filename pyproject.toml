@@ -23,6 +23,7 @@ dependencies = [
     "google-genai",
     "google-api-python-client>=2.187.0",
     "isodate>=0.7.2",
+    "msal>=1.32.0",
     "openai>=1.56.0",
     "polars>=1.36.1",
     "requests>=2.32.5",
@@ -66,5 +67,4 @@ line-ending = "auto"
 [tool.ty.environment]
 # Target Python 3.14 to match project requirements
 python-version = "3.14"
-
 

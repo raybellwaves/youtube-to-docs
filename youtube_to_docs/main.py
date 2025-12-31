@@ -177,7 +177,8 @@ def main(args_list: list[str] | None = None) -> None:
             "Can be one of: \n"
             "Local file path to save the output CSV file.\n"
             "'workspace' to use Google Workspace storage.\n"
-            "'m365' to use Microsoft 365 storage (workspace-compatible)."
+            "'m365' to use Microsoft 365 storage "
+            "(requires M365_CLIENT_ID, optional M365_TENANT_ID)."
         ),
     )
     parser.add_argument(

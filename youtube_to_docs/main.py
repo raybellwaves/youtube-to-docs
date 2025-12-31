@@ -12,6 +12,7 @@
 #     "yt-dlp>=2025.2.19",
 #     "static-ffmpeg>=2.5"
 # ///
+"""CLI entry point and orchestration for youtube-to-docs processing."""
 import argparse
 import os
 import re
@@ -41,7 +42,7 @@ from youtube_to_docs.video import process_videos
 
 
 def reorder_columns(df: pl.DataFrame) -> pl.DataFrame:
-    """Reorder columns according to the specified logical structure."""
+    """Return a CSV-friendly column order grouped by metadata, outputs, and costs."""
     cols = df.columns
     base_order = [
         "URL",
@@ -263,15 +264,14 @@ def main(args_list: list[str] | None = None) -> None:
 
     video_ids = resolve_video_ids(video_id_input, youtube_service)
 
-    # Setup Output Directories
-    # Setup Storage
+    # Select storage backend and base output directory.
     if outfile == "workspace" or (
         len(outfile) > 20
         and "." not in outfile
         and "/" not in outfile
         and "\\" not in outfile
     ):
-        # Heuristic: "workspace" or looks like a Folder ID
+        # Heuristic: "workspace" or looks like a Folder ID.
         print(f"Using Google Workspace storage. Output: {outfile}")
         storage = GoogleDriveStorage(outfile)
         outfile_path = "youtube-docs.csv"  # Relative to root_folder_id
@@ -280,19 +280,17 @@ def main(args_list: list[str] | None = None) -> None:
         print(f"Using Local storage. Output: {outfile}")
         storage = LocalStorage()
         output_dir = os.path.dirname(outfile)
-        storage.ensure_directory(output_dir)  # Ensure parent of CSV exists
+        storage.ensure_directory(output_dir)
         base_dir = output_dir if output_dir else "."
-        outfile_path = outfile  # Keep original path for local
+        outfile_path = outfile
 
     transcripts_dir = os.path.join(base_dir, "transcript-files")
     summaries_dir = os.path.join(base_dir, "summary-files")
     infographics_dir = os.path.join(base_dir, "infographic-files")
     speakers_dir = os.path.join(base_dir, "speaker-extraction-files")
     qa_dir = os.path.join(base_dir, "qa-files")
-    # audio_dir for storage (final destination)
     audio_dir = os.path.join(base_dir, "audio-files")
 
-    # Local temp dir for processing (Audio/TTS require local files)
     local_temp_dir = "temp_processing_artifacts"
     local_audio_dir = os.path.join(local_temp_dir, "audio-files")
     os.makedirs(local_audio_dir, exist_ok=True)
@@ -304,7 +302,6 @@ def main(args_list: list[str] | None = None) -> None:
     storage.ensure_directory(qa_dir)
     storage.ensure_directory(audio_dir)
 
-    # Load existing CSV if it exists
     existing_df = storage.load_dataframe(outfile_path)
     if existing_df is not None:
         print(f"Loaded existing data from {outfile} ({len(existing_df)} rows)")
@@ -324,7 +321,6 @@ def main(args_list: list[str] | None = None) -> None:
         url = f"https://www.youtube.com/watch?v={video_id}"
         print(f"Processing Video ID: {video_id}")
 
-        # Check if video already exists in CSV
         existing_row = None
         if existing_df is not None and "URL" in existing_df.columns:
             matches = existing_df.filter(pl.col("URL") == url)
@@ -377,9 +373,7 @@ def main(args_list: list[str] | None = None) -> None:
         safe_title = re.sub(r'[\\/*?:"><>|]', "_", video_title).replace("\n", " ")
         safe_title = safe_title.replace("\r", "")
 
-        # Audio Extraction (needed if AI transcript is requested,
-        # regardless of language)
-        # Check storage first if missing in row
+        # Audio extraction (needed for AI transcripts regardless of language).
         if transcript_arg != "youtube":
             audio_link_or_path = row.get("Audio File")
             if not audio_link_or_path or not storage.exists(str(audio_link_or_path)):
@@ -392,30 +386,23 @@ def main(args_list: list[str] | None = None) -> None:
                         if hasattr(storage, "get_full_path")
                         else expected_audio
                     )
-                    pass
 
         audio_file_path = row.get("Audio File", "")
         local_audio_path = ""
 
-        # If we need audio for generation (STT not "youtube"), ensures we have logic
-        if transcript_arg != "youtube":
-            # If we already have a link/path
-            if audio_file_path and storage.exists(audio_file_path):
-                # It exists in storage.
-                pass
-            else:
-                # Need to extract
-                print(f"Extracting audio for {transcript_arg}...")
-                local_audio_path = extract_audio(video_id, local_audio_dir)
-                if local_audio_path:
-                    # Upload to storage
-                    target_audio_path = os.path.join(audio_dir, f"{video_id}.m4a")
-                    uploaded_path_or_link = storage.upload_file(
-                        local_audio_path, target_audio_path, content_type="audio/mp4"
-                    )
-                    print(f"Audio saved to: {uploaded_path_or_link}")
-                    row["Audio File"] = uploaded_path_or_link
-                    audio_file_path = uploaded_path_or_link
+        if transcript_arg != "youtube" and not (
+            audio_file_path and storage.exists(audio_file_path)
+        ):
+            print(f"Extracting audio for {transcript_arg}...")
+            local_audio_path = extract_audio(video_id, local_audio_dir)
+            if local_audio_path:
+                target_audio_path = os.path.join(audio_dir, f"{video_id}.m4a")
+                uploaded_path_or_link = storage.upload_file(
+                    local_audio_path, target_audio_path, content_type="audio/mp4"
+                )
+                print(f"Audio saved to: {uploaded_path_or_link}")
+                row["Audio File"] = uploaded_path_or_link
+                audio_file_path = uploaded_path_or_link
 
         # --- Language Dependent Logic ---
         for language in languages:

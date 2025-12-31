@@ -486,6 +486,24 @@ class TestMain(unittest.TestCase):
         self.assertIn("Summary Text gemini-test from youtube (es)", df.columns)
         self.assertIn("Transcript File human generated (es)", df.columns)
 
+    @patch("youtube_to_docs.main.get_youtube_service")
+    @patch("youtube_to_docs.main.resolve_video_ids")
+    @patch("youtube_to_docs.main.GoogleDriveStorage")
+    @patch("youtube_to_docs.main.M365Storage")
+    def test_m365_storage_selected(
+        self, mock_m365_storage, mock_drive_storage, mock_resolve, mock_svc
+    ):
+        mock_resolve.return_value = []
+        storage_instance = mock_m365_storage.return_value
+        storage_instance.load_dataframe.return_value = None
+
+        with patch.dict(os.environ, {"M365_CLIENT_ID": "client-id"}):
+            with patch("sys.argv", ["main.py", "vid1", "-o", "m365"]):
+                main.main()
+
+        mock_m365_storage.assert_called_once_with("m365")
+        mock_drive_storage.assert_not_called()
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -643,3 +643,10 @@ class GoogleDriveStorage(Storage):
         except (HttpError, OSError) as e:
             print(f"Error downloading file {path} to local: {e}")
             return None
+
+
+class M365Storage(GoogleDriveStorage):
+    """Compatibility shim for Microsoft 365 storage using workspace behavior."""
+
+    def __init__(self, output_arg: str = "workspace"):
+        super().__init__("workspace")

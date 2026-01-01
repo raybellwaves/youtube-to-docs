@@ -1,5 +1,4 @@
 import os
-import re
 from typing import Any, Dict, List, Tuple, cast
 
 import google.auth
@@ -10,26 +9,7 @@ from google.genai import types
 from openai import OpenAI
 
 from youtube_to_docs.prices import PRICES
-
-
-def normalize_model_name(model_name: str) -> str:
-    """
-    Normalizes a model name by stripping prefixes and suffixes.
-    Suffixes handled: @20251001, -20251001-v1, -v1.
-    Prefixes handled: vertex-, bedrock-, foundry-.
-    """
-    # Strip prefixes
-    normalized = model_name
-    prefixes = ["vertex-", "bedrock-", "foundry-"]
-    for prefix in prefixes:
-        if normalized.startswith(prefix):
-            normalized = normalized[len(prefix) :]
-            break
-
-    # Strip suffixes using regex: (@\d{8}|-\d{8}-v\d+|-v\d+)$
-    normalized = re.sub(r"(@\d{8}|-\d{8}-v\d+|-v\d+)$", "", normalized)
-
-    return normalized
+from youtube_to_docs.utils import add_question_numbers, normalize_model_name
 
 
 def get_model_pricing(model_name: str) -> Tuple[float | None, float | None]:
@@ -350,53 +330,6 @@ def extract_speakers(model_name: str, transcript: str) -> Tuple[str, int, int]:
         f"Transcript: {transcript}"
     )
     return _query_llm(model_name, prompt)
-
-
-def add_question_numbers(markdown_table: str) -> str:
-    """
-    Adds a 'question number' column to the markdown table.
-    """
-    lines = markdown_table.strip().split("\n")
-    if not lines:
-        return markdown_table
-
-    # Check if it's a valid table (has header and separator)
-    if len(lines) < 2:
-        return markdown_table
-
-    new_lines = []
-    question_counter = 1
-
-    for i, line in enumerate(lines):
-        stripped_line = line.strip()
-        if not stripped_line:
-            continue
-
-        if i == 0:
-            # Header row
-            # Ensure it starts with | (some LLMs might miss it)
-            if not stripped_line.startswith("|"):
-                stripped_line = "|" + stripped_line
-            new_lines.append(f"| question number {stripped_line}")
-        elif i == 1 and ("---" in stripped_line or "-|-" in stripped_line):
-            # Separator row
-            if not stripped_line.startswith("|"):
-                stripped_line = "|" + stripped_line
-            new_lines.append(f"|---{stripped_line}")
-        else:
-            # Data row
-            if stripped_line.startswith("|"):
-                new_lines.append(f"| {question_counter} {stripped_line}")
-                question_counter += 1
-            else:
-                # Handle potential malformed table rows or text outside the table
-                if "|" in stripped_line:  # It has columns but maybe missing start pipe
-                    new_lines.append(f"| {question_counter} | {stripped_line}")
-                    question_counter += 1
-                else:
-                    new_lines.append(line)
-
-    return "\n".join(new_lines)
 
 
 def generate_qa(

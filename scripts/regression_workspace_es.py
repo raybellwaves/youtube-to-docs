@@ -10,12 +10,12 @@ from regression_core import (
 
 
 def main():
-    print("=== YouTube-to-Docs Regression: Google Workspace Storage (Spanish, Gemini Pro) ===")
+    print(
+        "=== YouTube-to-Docs Regression: "
+        "Google Workspace Storage (Spanish, Gemini Pro) ==="
+    )
 
-    # 1. Resolve Drive Folder (Delete if exists, then Recreate)
-    # We use a different folder name to avoid conflicts with the EN test if run in parallel,
-    # or we could use the same one if we want to test appending.
-    # Let's use a distinct one for a clean isolation test.
+    # 1. Resolve Drive Folder (Delete if exists, then Recreate
     folder_id = resolve_drive_folder(
         "youtube-to-docs-test-drive", delete_if_exists=True
     )

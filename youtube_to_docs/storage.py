@@ -1,12 +1,20 @@
+import atexit
+import base64
 import io
+import json
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
+from mimetypes import guess_type
 from pathlib import Path
 from typing import Optional
 
+import msal
 import polars as pl
+import pypandoc
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -641,5 +649,396 @@ class GoogleDriveStorage(Storage):
                 f.write(data)
             return local_path
         except (HttpError, OSError) as e:
+            print(f"Error downloading file {path} to local: {e}")
+            return None
+
+
+class M365Storage(Storage):
+    """Implementation of Storage for Microsoft 365 (OneDrive/SharePoint)."""
+
+    GRAPH_BASE_URL = "https://graph.microsoft.com/v1.0"
+    SCOPES = ["Files.ReadWrite"]
+    CLIENT_CONFIG_FILE = Path.home() / ".azure_client.json"
+    TOKEN_CACHE_FILE = Path.home() / ".msal_token_cache.json"
+
+    def __init__(self, output_arg: str):
+        self.root_folder_name = (
+            "youtube-to-docs-artifacts"
+            if output_arg == "sharepoint"
+            else output_arg
+        )
+        self.app = self._build_msal_app()
+        self.root_folder_id = self._ensure_root_folder()
+        self.folder_cache: dict[str, str] = {}
+        self.file_cache: dict[str, dict] = {}
+
+    def _build_msal_app(self) -> msal.PublicClientApplication:
+        if not self.CLIENT_CONFIG_FILE.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found at {self.CLIENT_CONFIG_FILE}. "
+                "Please create it with {'client_id': '...', 'authority': '...'}"
+            )
+        config = json.loads(self.CLIENT_CONFIG_FILE.read_text(encoding="utf-8"))
+        client_id = config.get("client_id")
+        authority = config.get("authority")
+        if not client_id or not authority:
+            raise ValueError(
+                "Azure client config must include both 'client_id' and 'authority'."
+            )
+
+        cache = msal.SerializableTokenCache()
+        if self.TOKEN_CACHE_FILE.exists():
+            cache.deserialize(self.TOKEN_CACHE_FILE.read_text(encoding="utf-8"))
+
+        def persist_cache() -> None:
+            if cache.has_state_changed:
+                self.TOKEN_CACHE_FILE.write_text(cache.serialize(), encoding="utf-8")
+
+        atexit.register(persist_cache)
+
+        return msal.PublicClientApplication(
+            client_id=client_id,
+            authority=authority,
+            token_cache=cache,
+        )
+
+    def _get_access_token(self) -> str:
+        accounts = self.app.get_accounts()
+        result = None
+        if accounts:
+            result = self.app.acquire_token_silent(self.SCOPES, account=accounts[0])
+        if not result:
+            result = self.app.acquire_token_interactive(self.SCOPES)
+        if "access_token" not in result:
+            error_msg = (
+                result.get("error_description") or result.get("error") or "Unknown error"
+            )
+            raise RuntimeError(f"Could not authenticate: {error_msg}")
+        return result["access_token"]
+
+    def _headers(self, content_type: Optional[str] = None) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {self._get_access_token()}"}
+        if content_type:
+            headers["Content-Type"] = content_type
+        return headers
+
+    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+        resp = requests.request(method, url, **kwargs)
+        if resp.status_code == 404:
+            return resp
+        resp.raise_for_status()
+        return resp
+
+    def _encode_share_url(self, url: str) -> str:
+        encoded = base64.urlsafe_b64encode(url.encode("utf-8")).decode("utf-8")
+        return f"u!{encoded.rstrip('=')}"
+
+    def _normalize_path(self, path: str) -> str:
+        parts = []
+        for part in Path(path).parts:
+            if part in (".", ""):
+                continue
+            if part == self.root_folder_name:
+                continue
+            parts.append(part)
+        return "/".join(parts)
+
+    def _map_text_path(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        suffix = Path(path).suffix.lower()
+        if suffix in (".md", ".txt"):
+            return str(Path(path).with_suffix(".docx"))
+        return path
+
+    def _map_dataframe_path(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        if path.lower().endswith(".csv"):
+            return str(Path(path).with_suffix(".xlsx"))
+        return path
+
+    def _get_item_by_path(self, path: str) -> Optional[dict]:
+        if path in self.file_cache:
+            return self.file_cache[path]
+        rel_path = self._normalize_path(path)
+        if not rel_path:
+            return None
+        url = f"{self.GRAPH_BASE_URL}/me/drive/items/{self.root_folder_id}:/{rel_path}"
+        resp = self._request("get", url, headers=self._headers())
+        if resp.status_code == 404:
+            return None
+        data = resp.json()
+        self.file_cache[path] = data
+        return data
+
+    def _get_item_by_url(self, url: str) -> Optional[dict]:
+        share_id = self._encode_share_url(url)
+        endpoint = f"{self.GRAPH_BASE_URL}/shares/{share_id}/driveItem"
+        resp = self._request("get", endpoint, headers=self._headers())
+        if resp.status_code == 404:
+            return None
+        return resp.json()
+
+    def _ensure_root_folder(self) -> str:
+        if not self.root_folder_name:
+            raise ValueError("Root folder name cannot be empty.")
+
+        url = f"{self.GRAPH_BASE_URL}/me/drive/root:/{self.root_folder_name}"
+        resp = self._request("get", url, headers=self._headers())
+        if resp.status_code == 404:
+            create_url = f"{self.GRAPH_BASE_URL}/me/drive/root/children"
+            payload = {
+                "name": self.root_folder_name,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "rename",
+            }
+            created = self._request(
+                "post", create_url, headers=self._headers("application/json"), json=payload
+            ).json()
+            return created["id"]
+        return resp.json()["id"]
+
+    def _get_child_folder(self, parent_id: str, name: str) -> Optional[dict]:
+        safe_name = name.replace("'", "''")
+        url = (
+            f"{self.GRAPH_BASE_URL}/me/drive/items/{parent_id}/children"
+            f"?$filter=name eq '{safe_name}'"
+        )
+        resp = self._request("get", url, headers=self._headers())
+        if resp.status_code == 404:
+            return None
+        items = resp.json().get("value", [])
+        for item in items:
+            if item.get("folder") is not None:
+                return item
+        return None
+
+    def _create_folder(self, parent_id: str, name: str) -> dict:
+        url = f"{self.GRAPH_BASE_URL}/me/drive/items/{parent_id}/children"
+        payload = {
+            "name": name,
+            "folder": {},
+            "@microsoft.graph.conflictBehavior": "rename",
+        }
+        return self._request(
+            "post", url, headers=self._headers("application/json"), json=payload
+        ).json()
+
+    def _ensure_folder_path(self, path: str) -> str:
+        normalized = self._normalize_path(path)
+        if not normalized:
+            return self.root_folder_id
+
+        parent_id = self.root_folder_id
+        current_path = ""
+        for part in Path(normalized).parts:
+            current_path = f"{current_path}/{part}" if current_path else part
+            if current_path in self.folder_cache:
+                parent_id = self.folder_cache[current_path]
+                continue
+
+            folder = self._get_child_folder(parent_id, part)
+            if folder is None:
+                folder = self._create_folder(parent_id, part)
+            parent_id = folder["id"]
+            self.folder_cache[current_path] = parent_id
+        return parent_id
+
+    def _upload_bytes(
+        self, path: str, content: bytes, content_type: Optional[str] = None
+    ) -> dict:
+        rel_path = self._normalize_path(path)
+        url = f"{self.GRAPH_BASE_URL}/me/drive/items/{self.root_folder_id}:/{rel_path}:/content"
+        resp = self._request(
+            "put",
+            url,
+            headers=self._headers(content_type),
+            data=content,
+        )
+        return resp.json()
+
+    def _download_bytes(self, item_id: str) -> bytes:
+        url = f"{self.GRAPH_BASE_URL}/me/drive/items/{item_id}/content"
+        resp = self._request("get", url, headers=self._headers())
+        return resp.content
+
+    def _convert_markdown_to_docx(self, markdown_text: str) -> bytes:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_docx:
+            tmp_docx_path = tmp_docx.name
+        try:
+            pypandoc.convert_text(
+                markdown_text,
+                to="docx",
+                format="md",
+                outputfile=tmp_docx_path,
+                extra_args=["--wrap=preserve"],
+            )
+            return Path(tmp_docx_path).read_bytes()
+        finally:
+            try:
+                os.remove(tmp_docx_path)
+            except FileNotFoundError:
+                pass
+
+    def _convert_docx_to_markdown(self, docx_bytes: bytes) -> str:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_docx:
+            tmp_docx.write(docx_bytes)
+            tmp_docx_path = tmp_docx.name
+        try:
+            return pypandoc.convert_file(tmp_docx_path, to="md", format="docx")
+        finally:
+            try:
+                os.remove(tmp_docx_path)
+            except FileNotFoundError:
+                pass
+
+    def exists(self, path: str) -> bool:
+        if path.startswith("http"):
+            return True
+        mapped = self._map_dataframe_path(self._map_text_path(path))
+        return self._get_item_by_path(mapped) is not None
+
+    def read_text(self, path: str) -> str:
+        if path.startswith("http"):
+            item = self._get_item_by_url(path)
+            if not item:
+                raise FileNotFoundError(f"File not found: {path}")
+        else:
+            mapped_path = self._map_text_path(path)
+            item = self._get_item_by_path(mapped_path)
+            if not item:
+                raise FileNotFoundError(f"File not found: {path}")
+
+        file_name = item.get("name", "")
+        content = self._download_bytes(item["id"])
+        if file_name.lower().endswith(".docx"):
+            return self._convert_docx_to_markdown(content)
+        return content.decode("utf-8")
+
+    def read_bytes(self, path: str) -> bytes:
+        if path.startswith("http"):
+            item = self._get_item_by_url(path)
+            if not item:
+                raise FileNotFoundError(f"File not found: {path}")
+        else:
+            mapped_path = self._map_dataframe_path(self._map_text_path(path))
+            item = self._get_item_by_path(mapped_path)
+            if not item:
+                raise FileNotFoundError(f"File not found: {path}")
+        return self._download_bytes(item["id"])
+
+    def write_text(self, path: str, content: str) -> str:
+        mapped_path = self._map_text_path(path)
+        parent_dir = str(Path(mapped_path).parent)
+        if parent_dir not in (".", ""):
+            self._ensure_folder_path(parent_dir)
+
+        docx_bytes = (
+            self._convert_markdown_to_docx(content)
+            if Path(mapped_path).suffix.lower() == ".docx"
+            else content.encode("utf-8")
+        )
+
+        mime_type = (
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            if Path(mapped_path).suffix.lower() == ".docx"
+            else "text/plain"
+        )
+        item = self._upload_bytes(mapped_path, docx_bytes, mime_type)
+        self.file_cache[path] = item
+        return item.get("webUrl", path)
+
+    def write_bytes(self, path: str, content: bytes) -> str:
+        parent_dir = str(Path(path).parent)
+        if parent_dir not in (".", ""):
+            self._ensure_folder_path(parent_dir)
+
+        mime_type, _ = guess_type(path)
+        item = self._upload_bytes(path, content, mime_type)
+        self.file_cache[path] = item
+        return item.get("webUrl", path)
+
+    def load_dataframe(self, path: str) -> Optional[pl.DataFrame]:
+        mapped_path = self._map_dataframe_path(path)
+        item = self._get_item_by_path(mapped_path)
+        if not item:
+            return None
+        content = self._download_bytes(item["id"])
+        if mapped_path.lower().endswith(".xlsx"):
+            return pl.read_excel(io.BytesIO(content))
+        return pl.read_csv(io.BytesIO(content))
+
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
+        mapped_path = self._map_dataframe_path(path)
+        parent_dir = str(Path(mapped_path).parent)
+        if parent_dir not in (".", ""):
+            self._ensure_folder_path(parent_dir)
+
+        output = io.BytesIO()
+        if mapped_path.lower().endswith(".xlsx"):
+            df.write_excel(output)
+            content_type = (
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        else:
+            df.write_csv(output)
+            content_type = "text/csv"
+        item = self._upload_bytes(mapped_path, output.getvalue(), content_type)
+        self.file_cache[path] = item
+        return item.get("webUrl", path)
+
+    def ensure_directory(self, path: str) -> None:
+        if path and path not in (".", ""):
+            self._ensure_folder_path(path)
+
+    def upload_file(
+        self, local_path: str, target_path: str, content_type: Optional[str] = None
+    ) -> str:
+        parent_dir = str(Path(target_path).parent)
+        if parent_dir not in (".", ""):
+            self._ensure_folder_path(parent_dir)
+
+        if content_type is None:
+            content_type, _ = guess_type(local_path)
+
+        with open(local_path, "rb") as f:
+            item = self._upload_bytes(target_path, f.read(), content_type)
+        self.file_cache[target_path] = item
+        return item.get("webUrl", target_path)
+
+    def get_full_path(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        mapped_path = self._map_dataframe_path(self._map_text_path(path))
+        item = self._get_item_by_path(mapped_path)
+        if item and "webUrl" in item:
+            return item["webUrl"]
+        return path
+
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        if not self.exists(path):
+            return None
+
+        if not download_dir:
+            download_dir = tempfile.gettempdir()
+
+        if path.startswith("http"):
+            item = self._get_item_by_url(path)
+            if not item:
+                return None
+            filename = item.get("name", "downloaded_file")
+        else:
+            filename = Path(path).name
+
+        local_path = os.path.join(download_dir, filename)
+        try:
+            data = self.read_bytes(path)
+            with open(local_path, "wb") as f:
+                f.write(data)
+            return local_path
+        except (OSError, requests.HTTPError) as e:
             print(f"Error downloading file {path} to local: {e}")
             return None

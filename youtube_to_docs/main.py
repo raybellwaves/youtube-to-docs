@@ -7,13 +7,13 @@ import polars as pl
 
 from youtube_to_docs.infographic import generate_infographic
 from youtube_to_docs.llms import (
-    ALL_MODELS,
     extract_speakers,
     generate_qa,
     generate_summary,
     generate_transcript,
     get_model_pricing,
 )
+from youtube_to_docs.models import ALL_MODELS
 from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage
 from youtube_to_docs.transcript import (
     extract_audio,

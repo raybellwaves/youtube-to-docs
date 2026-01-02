@@ -165,6 +165,10 @@ def verify_output(
     m_to_norm = model if model is not None else "unknown"
     t_to_norm = transcript_model if transcript_model is not None else "youtube"
 
+    # Default transcript_model to "youtube" if it's None (default CLI behavior)
+    if transcript_model is None:
+        transcript_model = "youtube"
+
     if output_target is None or not os.path.exists(output_target):
         # If it's a folder ID, we skip local file check but we can still
         # check columns if we download it. For now, let's assume if it is
@@ -174,7 +178,14 @@ def verify_output(
     else:
         csv_path = output_target
 
-    if output_target and (
+    if output_target == "sharepoint":
+        print("Loading from SharePoint")
+        sys.path.append(os.getcwd())
+        from youtube_to_docs.storage import M365Storage
+
+        storage = M365Storage()
+        df = storage.load_dataframe("youtube-docs.csv")
+    elif output_target and (
         len(output_target) > 20
         and "." not in output_target
         and "/" not in output_target

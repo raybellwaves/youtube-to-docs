@@ -12,6 +12,7 @@ This directory contains regression tests for the `youtube-to-docs` tool.
 - **[regression_es_no_yt_summary.py](file:///c:/Users/ray.bell/Documents/Code/youtube-to-docs/scripts/regression_es_no_yt_summary.py)**: A Spanish run with no secondary YouTube summary processing (`-nys` flag).
 - **[regression_workspace.py](file:///c:/Users/ray.bell/Documents/Code/youtube-to-docs/scripts/regression_workspace.py)**: A run that stores results in Google Drive (specifically a folder named `youtube-to-docs-test-drive`).
 - **[regression_workspace_es.py](file:///c:/Users/ray.bell/Documents/Code/youtube-to-docs/scripts/regression_workspace_es.py)**: A Spanish run that stores results in Google Drive using Gemini Pro models.
+- **[regression_sharepoint.py](file:///c:/Users/ray.bell/Documents/Code/youtube-to-docs/scripts/regression_sharepoint.py)**: A run that stores results in SharePoint/OneDrive (specifically a folder named `youtube-to-docs-artifacts`). Uses `foundry-gpt-5-mini` for summarization.
 
 ## Usage
 
@@ -37,4 +38,10 @@ or
 
 ```bash
 uv run python scripts/regression_workspace_es.py
+```
+
+or
+
+```bash
+uv run python scripts/regression_sharepoint.py
 ```

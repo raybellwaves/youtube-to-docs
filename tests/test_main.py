@@ -551,6 +551,77 @@ class TestMain(unittest.TestCase):
 
         # Check if generate_summary was called with gemini-3-flash-preview
         mock_gen_summary.assert_called()
+
+    def _run_all_suite(self, suite_name):
+        with patch("youtube_to_docs.main.get_youtube_service"), patch(
+            "youtube_to_docs.main.resolve_video_ids"
+        ) as mock_resolve, patch(
+            "youtube_to_docs.main.get_video_details"
+        ) as mock_details, patch(
+            "youtube_to_docs.main.fetch_transcript"
+        ) as mock_fetch_trans, patch(
+            "youtube_to_docs.main.get_model_pricing"
+        ) as mock_get_pricing, patch(
+            "youtube_to_docs.main.extract_audio"
+        ) as mock_extract_audio, patch(
+            "youtube_to_docs.main.generate_transcript"
+        ) as mock_gen_transcript, patch(
+            "youtube_to_docs.main.extract_speakers"
+        ) as mock_extract_speakers, patch(
+            "youtube_to_docs.main.generate_qa"
+        ) as mock_gen_qa, patch(
+            "youtube_to_docs.main.generate_summary"
+        ) as mock_gen_summary, patch(
+            "youtube_to_docs.main.generate_infographic"
+        ) as mock_gen_infographic, patch(
+            "youtube_to_docs.main.process_tts"
+        ) as mock_process_tts, patch(
+            "youtube_to_docs.main.process_videos"
+        ) as mock_process_videos, patch(
+            "youtube_to_docs.storage.LocalStorage.upload_file"
+        ) as mock_upload_file, patch(
+            "os.makedirs"
+        ), patch("builtins.open", mock_open()):
+            mock_resolve.return_value = ["vid1"]
+            mock_details.return_value = (
+                "Title 1",
+                "Desc",
+                "2023-01-01",
+                "Chan",
+                "Tags",
+                "0:01:00",
+                "url1",
+            )
+            mock_fetch_trans.return_value = ("Transcript 1", False)
+            mock_get_pricing.return_value = (0.0, 0.0)
+            mock_extract_audio.return_value = "audio.m4a"
+            mock_gen_transcript.return_value = ("AI Transcript 1", 0, 0)
+            mock_extract_speakers.return_value = ("Speaker 1", 0, 0)
+            mock_gen_qa.return_value = ("QA 1", 0, 0)
+            mock_gen_summary.return_value = ("Summary 1", 0, 0)
+            mock_gen_infographic.return_value = (b"png", 0, 0)
+            mock_process_tts.side_effect = lambda df, *_args, **_kwargs: df
+            mock_process_videos.side_effect = lambda df, *_args, **_kwargs: df
+            mock_upload_file.side_effect = lambda _lp, tp, **_kwargs: tp
+
+            main.main(
+                ["vid1", "-o", self.outfile, "--all", suite_name]
+            )
+
+            summary_model = mock_gen_summary.call_args[0][0]
+            transcript_model = mock_gen_transcript.call_args[0][0]
+
+        return summary_model, transcript_model
+
+    def test_all_gemini_flash_models(self):
+        summary_model, transcript_model = self._run_all_suite("gemini-flash")
+        self.assertEqual(summary_model, "gemini-3-flash-preview")
+        self.assertEqual(transcript_model, "gemini-3-flash-preview")
+
+    def test_all_gemini_pro_models(self):
+        summary_model, transcript_model = self._run_all_suite("gemini-pro")
+        self.assertEqual(summary_model, "gemini-3-pro-preview")
+        self.assertEqual(transcript_model, "gemini-3-pro-preview")
         any_flash_summary = any(
             call.args[0] == "gemini-3-flash-preview"
             for call in mock_gen_summary.call_args_list

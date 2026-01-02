@@ -5,6 +5,7 @@ repo_name: youtube-to-docs
 
 theme:
   name: material
+  logo: assets/logo.png
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default

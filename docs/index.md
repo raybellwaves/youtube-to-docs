@@ -1,6 +1,10 @@
 # youtube-to-docs
 [![PyPI version](https://img.shields.io/pypi/v/youtube-to-docs.svg)](https://pypi.org/project/youtube-to-docs/)
 
+<div align="center">
+  <img src="assets/logo.png" alt="youtube-to-docs logo" width="300" />
+</div>
+
 Convert YouTube videos into structured docs, summaries, audio, and visual assets for easier discovery.
 
 View all available CLI options:

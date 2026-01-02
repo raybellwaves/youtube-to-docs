@@ -10,6 +10,9 @@ from youtube_to_docs import main
 class TestMain(unittest.TestCase):
     def setUp(self):
         self.outfile = "test_output_main.csv"
+        self.dummy_audio_file = "dummy.m4a"
+        with open(self.dummy_audio_file, "w") as f:
+            f.write("dummy audio data")
         if os.path.exists(self.outfile):
             os.remove(self.outfile)
         self.sleep_patcher = patch("youtube_to_docs.main.time.sleep")
@@ -19,6 +22,8 @@ class TestMain(unittest.TestCase):
         self.sleep_patcher.stop()
         if os.path.exists(self.outfile):
             os.remove(self.outfile)
+        if os.path.exists(self.dummy_audio_file):
+            os.remove(self.dummy_audio_file)
 
     @patch("youtube_to_docs.main.get_youtube_service")
     @patch("youtube_to_docs.main.resolve_video_ids")
@@ -640,6 +645,49 @@ class TestMain(unittest.TestCase):
         # Check if generate_infographic was called with gemini-3-pro-image-preview
         mock_gen_info.assert_called()
         self.assertEqual(mock_gen_info.call_args.args[0], "gemini-3-pro-image-preview")
+
+
+    def test_all_gemini_flash_sets_correct_models(self):
+        """Test if --all gemini-flash sets the correct models."""
+        with patch("youtube_to_docs.main.get_youtube_service"), \
+             patch("youtube_to_docs.main.resolve_video_ids", return_value=["vid1"]), \
+             patch("youtube_to_docs.main.get_video_details", return_value=("Title 1", "Desc 1", "2024-01-01", "Chan 1", [], 60, None)), \
+             patch("youtube_to_docs.main.fetch_transcript", return_value=("", False)), \
+             patch("youtube_to_docs.llms.generate_transcript", return_value=("AI Transcript", 0, 0)), \
+             patch("youtube_to_docs.llms.generate_summary", return_value=("Summary", 0, 0)), \
+             patch("youtube_to_docs.llms.extract_speakers", return_value=("Speakers", 0, 0)), \
+             patch("youtube_to_docs.llms.generate_qa", return_value=("Q&A", 0, 0)), \
+             patch("youtube_to_docs.main.extract_audio", return_value=self.dummy_audio_file), \
+             patch("youtube_to_docs.main.LocalStorage.save_dataframe") as mock_save:
+
+            main.main(["vid1", "--all", "gemini-flash", "-o", "test_output_main.csv"])
+
+            # Get the arguments from the last call to save_dataframe
+            saved_df = mock_save.call_args[0][0]
+
+            # Check that the correct model names are in the column headers
+            self.assertIn("Summary Text gemini-3-flash-preview from gemini-3-flash-preview", saved_df.columns)
+
+    def test_all_gemini_pro_sets_correct_models(self):
+        """Test if --all gemini-pro sets the correct models."""
+        with patch("youtube_to_docs.main.get_youtube_service"), \
+             patch("youtube_to_docs.main.resolve_video_ids", return_value=["vid1"]), \
+             patch("youtube_to_docs.main.get_video_details", return_value=("Title 1", "Desc 1", "2024-01-01", "Chan 1", [], 60, None)), \
+             patch("youtube_to_docs.main.fetch_transcript", return_value=("", False)), \
+             patch("youtube_to_docs.llms.generate_transcript", return_value=("AI Transcript", 0, 0)), \
+             patch("youtube_to_docs.llms.generate_summary", return_value=("Summary", 0, 0)), \
+             patch("youtube_to_docs.llms.extract_speakers", return_value=("Speakers", 0, 0)), \
+             patch("youtube_to_docs.llms.generate_qa", return_value=("Q&A", 0, 0)), \
+             patch("youtube_to_docs.main.extract_audio", return_value=self.dummy_audio_file), \
+             patch("youtube_to_docs.main.LocalStorage.save_dataframe") as mock_save:
+
+            main.main(["vid1", "--all", "gemini-pro", "-o", "test_output_main.csv"])
+
+            # Get the arguments from the last call to save_dataframe
+            saved_df = mock_save.call_args[0][0]
+
+            # Check that the correct model names are in the column headers
+            self.assertIn("Summary Text gemini-3-pro-preview from gemini-3-pro-preview", saved_df.columns)
 
 
 if __name__ == "__main__":

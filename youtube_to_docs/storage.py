@@ -1,12 +1,18 @@
+import atexit
 import io
+import json
 import os
 import re
 import shutil
+import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Optional
 
+import msal
 import polars as pl
+import pypandoc
+import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -641,5 +647,314 @@ class GoogleDriveStorage(Storage):
                 f.write(data)
             return local_path
         except (HttpError, OSError) as e:
+            print(f"Error downloading file {path} to local: {e}")
+            return None
+
+
+class M365Storage(Storage):
+    """Implementation of Storage for SharePoint/OneDrive."""
+
+    CLIENT_CONFIG_FILE = Path.home() / ".azure_client.json"
+    TOKEN_CACHE_FILE = Path.home() / ".msal_token_cache.json"
+    SCOPES = ["Files.ReadWrite"]
+
+    def __init__(self, output_arg: str):
+        self.token = self._get_access_token()
+        self.file_cache: dict[str, dict] = {}  # path -> item metadata
+        self.root_folder = "youtube-to-docs-artifacts"
+        self._ensure_root_folder()
+
+    def _get_client_config(self) -> dict:
+        if not self.CLIENT_CONFIG_FILE.exists():
+            raise FileNotFoundError(
+                f"Configuration file not found at {self.CLIENT_CONFIG_FILE}. "
+                "Please create it with {'client_id': '...', 'authority': '...'}"
+            )
+        return json.loads(self.CLIENT_CONFIG_FILE.read_text(encoding="utf-8"))
+
+    def _build_msal_app(self) -> msal.PublicClientApplication:
+        config = self._get_client_config()
+        client_id = config.get("client_id")
+        authority = config.get("authority")
+
+        if not client_id or not authority:
+            raise ValueError(
+                "Config file must contain both 'client_id' and 'authority'"
+            )
+
+        cache = msal.SerializableTokenCache()
+        if self.TOKEN_CACHE_FILE.exists():
+            cache.deserialize(self.TOKEN_CACHE_FILE.read_text(encoding="utf-8"))
+
+        atexit.register(
+            lambda: self.TOKEN_CACHE_FILE.write_text(
+                cache.serialize(), encoding="utf-8"
+            )
+            if cache.has_state_changed
+            else None
+        )
+
+        return msal.PublicClientApplication(
+            client_id=client_id,
+            authority=authority,
+            token_cache=cache,
+        )
+
+    def _get_access_token(self) -> str:
+        app = self._build_msal_app()
+        accounts = app.get_accounts()
+        result = None
+        if accounts:
+            result = app.acquire_token_silent(self.SCOPES, account=accounts[0])
+
+        if not result:
+            print("No cached token found, attempting interactive login...")
+            result = app.acquire_token_interactive(self.SCOPES)
+
+        if "access_token" not in result:
+            error_msg = (
+                result.get("error_description")
+                or result.get("error")
+                or "Unknown error"
+            )
+            raise RuntimeError(f"Could not authenticate: {error_msg}")
+
+        return result["access_token"]
+
+    def _ensure_root_folder(self):
+        """Ensure the root folder for artifacts exists."""
+        self.ensure_directory(self.root_folder)
+
+    def _get_item_metadata(self, path: str) -> Optional[dict]:
+        """Gets metadata for a file or folder."""
+        if path in self.file_cache:
+            return self.file_cache[path]
+
+        # Normalize path for API
+        remote_path = Path(self.root_folder, path).as_posix()
+        url = f"https://graph.microsoft.com/v1.0/me/drive/root:/{remote_path}"
+        headers = {"Authorization": f"Bearer {self.token}"}
+        resp = requests.get(url, headers=headers)
+
+        if resp.status_code == 200:
+            meta = resp.json()
+            self.file_cache[path] = meta
+            return meta
+        return None
+
+    def _extract_id_from_url(self, url: str) -> Optional[str]:
+        # M365 URLs are not as straightforward to parse for IDs as Google Drive's
+        # This is a placeholder and may need a more robust implementation
+        # For now, we'll rely on path lookups mostly
+        return None
+
+    def exists(self, path: str) -> bool:
+        if path.startswith("http"):
+            return True  # Assume links exist
+        return self._get_item_metadata(path) is not None
+
+    def read_bytes(self, path: str) -> bytes:
+        meta = self._get_item_metadata(path)
+        if not meta or "@microsoft.graph.downloadUrl" not in meta:
+            raise FileNotFoundError(f"File not found or no download URL for: {path}")
+
+        download_url = meta["@microsoft.graph.downloadUrl"]
+        resp = requests.get(download_url)
+        if not resp.ok:
+            raise IOError(f"Failed to download file: {path} ({resp.status_code})")
+        return resp.content
+
+    def read_text(self, path: str) -> str:
+        content_bytes = self.read_bytes(path)
+        if path.endswith(".docx"):
+            # If it is a word doc, convert to markdown
+            try:
+                return pypandoc.convert_text(
+                    content_bytes, to="markdown", format="docx"
+                )
+            except Exception as e:
+                raise IOError(f"Failed to convert DOCX to text: {e}")
+        return content_bytes.decode("utf-8")
+
+    def _upload(
+        self, path: str, content: bytes, content_type: str, conflict_behavior="replace"
+    ) -> str:
+        filename = Path(path).name
+        # Get parent path relative to root
+        parent_path = Path(path).parent.as_posix()
+        if parent_path == ".":
+            parent_path = ""
+        else:
+            parent_path = f"/{parent_path}"
+
+        # URL for creating parent folder if it doesn't exist
+        # and for getting the parent folder's ID
+        full_parent_path = Path(self.root_folder, parent_path.strip("/")).as_posix()
+        parent_url = (
+            f"https://graph.microsoft.com/v1.0/me/drive/root:/{full_parent_path}"
+        )
+        headers = {"Authorization": f"Bearer {self.token}"}
+        parent_meta = requests.get(parent_url, headers=headers).json()
+        parent_id = parent_meta.get("id")
+
+        if not parent_id:
+            raise FileNotFoundError(f"Could not find or create parent folder at {parent_path}")
+
+        upload_url = (
+            f"https://graph.microsoft.com/v1.0/me/drive/items/{parent_id}:/{filename}:/content"
+            f"?@microsoft.graph.conflictBehavior={conflict_behavior}"
+        )
+        headers["Content-Type"] = content_type
+
+        resp = requests.put(upload_url, headers=headers, data=content)
+
+        if not resp.ok:
+            raise IOError(f"Upload failed for {path} ({resp.status_code}): {resp.text}")
+
+        meta = resp.json()
+        self.file_cache[path] = meta
+        return meta.get("webUrl", "")
+
+    def _convert_md_to_docx_bytes(self, md_text: str) -> bytes:
+        with tempfile.NamedTemporaryFile(suffix=".docx", delete=False) as tmp_docx:
+            tmp_docx_path = tmp_docx.name
+        try:
+            pypandoc.convert_text(
+                md_text,
+                to="docx",
+                format="md",
+                outputfile=tmp_docx_path,
+                extra_args=["--wrap=preserve"],
+            )
+            return Path(tmp_docx_path).read_bytes()
+        finally:
+            if os.path.exists(tmp_docx_path):
+                os.remove(tmp_docx_path)
+
+    def write_text(self, path: str, content: str) -> str:
+        if path.endswith(".md"):
+            # Convert markdown to Word for better viewing online
+            docx_bytes = self._convert_md_to_docx_bytes(content)
+            new_path = path.replace(".md", ".docx")
+            return self.write_bytes(new_path, docx_bytes)
+        else:
+            # Assume plain text
+            return self._upload(
+                path, content.encode("utf-8"), "text/plain"
+            )
+
+    def write_bytes(self, path: str, content: bytes) -> str:
+        filename = Path(path).name
+        content_type = "application/octet-stream"
+        if filename.endswith(".docx"):
+            content_type = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        elif filename.endswith(".xlsx"):
+            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif filename.endswith(".wav"):
+            content_type = "audio/wav"
+        elif filename.endswith(".png"):
+            content_type = "image/png"
+
+        return self._upload(path, content, content_type)
+
+    def _convert_csv_to_xlsx_bytes(self, csv_text: str) -> bytes:
+        df = pl.read_csv(io.StringIO(csv_text))
+        with io.BytesIO() as output:
+            df.write_excel(output)
+            return output.getvalue()
+
+    def load_dataframe(self, path: str) -> Optional[pl.DataFrame]:
+        try:
+            excel_bytes = self.read_bytes(path)
+            return pl.read_excel(io.BytesIO(excel_bytes))
+        except (FileNotFoundError, IOError, Exception) as e:
+            print(f"Error loading dataframe from M365: {e}")
+            return None
+
+    def save_dataframe(self, df: pl.DataFrame, path: str) -> str:
+        # Convert dataframe to xlsx in-memory
+        with io.BytesIO() as xlsx_buffer:
+            df.write_excel(xlsx_buffer)
+            xlsx_bytes = xlsx_buffer.getvalue()
+
+        # Upload as xlsx
+        new_path = Path(path).with_suffix(".xlsx").name
+        return self.write_bytes(new_path, xlsx_bytes)
+
+    def ensure_directory(self, path: str) -> None:
+        parts = Path(path).parts
+        current_path = ""
+        for part in parts:
+            parent_path = current_path
+            current_path = f"{current_path}/{part}" if current_path else part
+
+            if self._get_item_metadata(current_path):
+                continue  # Already exists
+
+            # URL for creating folder
+            if parent_path:
+                parent_meta = self._get_item_metadata(parent_path)
+                if not parent_meta:
+                    raise IOError(f"Could not find parent folder {parent_path} for {part}")
+                parent_id = parent_meta["id"]
+                url = f"https://graph.microsoft.com/v1.0/me/drive/items/{parent_id}/children"
+            else:
+                # Top level folder
+                url = "https://graph.microsoft.com/v1.0/me/drive/root/children"
+
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json",
+            }
+            body = {
+                "name": part,
+                "folder": {},
+                "@microsoft.graph.conflictBehavior": "fail",
+            }
+            resp = requests.post(url, headers=headers, json=body)
+            if not resp.ok and resp.status_code != 409: # 409 is conflict/exists
+                 raise IOError(
+                    f"Failed to create directory {part} in {parent_path} ({resp.status_code}): {resp.text}"
+                )
+
+
+    def upload_file(
+        self, local_path: str, target_path: str, content_type: Optional[str] = None
+    ) -> str:
+        with open(local_path, "rb") as f:
+            content = f.read()
+
+        if content_type is None:
+            import mimetypes
+            content_type, _ = mimetypes.guess_type(local_path)
+            if content_type is None:
+                content_type = "application/octet-stream"
+
+        return self._upload(target_path, content, content_type)
+
+    def get_full_path(self, path: str) -> str:
+        if path.startswith("http"):
+            return path
+        meta = self._get_item_metadata(path)
+        return meta.get("webUrl", path) if meta else path
+
+    def get_local_file(
+        self, path: str, download_dir: Optional[str] = None
+    ) -> Optional[str]:
+        if not self.exists(path):
+            return None
+
+        if not download_dir:
+            download_dir = tempfile.gettempdir()
+
+        filename = Path(path).name
+        local_path = os.path.join(download_dir, filename)
+
+        try:
+            data = self.read_bytes(path)
+            with open(local_path, "wb") as f:
+                f.write(data)
+            return local_path
+        except (IOError, OSError) as e:
             print(f"Error downloading file {path} to local: {e}")
             return None

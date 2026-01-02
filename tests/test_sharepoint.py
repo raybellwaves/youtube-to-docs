@@ -13,6 +13,8 @@ import pypandoc
 import pytest
 import requests
 
+from youtube_to_docs.storage import M365Storage
+
 CLIENT_CONFIG_FILE = Path.home() / ".azure_client.json"
 TOKEN_CACHE_FILE = Path.home() / ".msal_token_cache.json"
 SCOPES = ["Files.ReadWrite"]
@@ -186,6 +188,56 @@ def test_markdown_to_word_upload():
 
     except Exception as e:
         pytest.fail(f"An error occurred: {e}")
+
+
+@pytest.mark.skipif(
+    os.environ.get("CI") is not None, reason="Skipping this test on CI environment"
+)
+def test_m365_storage_operations():
+    """Tests basic file operations for M365Storage."""
+    try:
+        if not CLIENT_CONFIG_FILE.exists():
+            pytest.skip("Azure client config file not found.")
+
+        storage = M365Storage("sharepoint")
+        test_content = "Hello, SharePoint!"
+        test_path = "test_file.txt"
+        test_md_path = "test_doc.md"
+
+        # 1. Write a file
+        file_url = storage.write_text(test_path, test_content)
+        assert file_url.startswith("http")
+        print(f"File written to {file_url}")
+
+        # 2. Check if it exists
+        assert storage.exists(test_path) is True
+        print("File exists.")
+
+        # 3. Read the file
+        read_content = storage.read_text(test_path)
+        assert read_content == test_content
+        print("File read correctly.")
+
+        # 4. Test markdown to docx conversion and readback
+        md_content = "# Markdown Header\n\nThis is a test."
+        docx_url = storage.write_text(test_md_path, md_content)
+        assert docx_url.startswith("http")
+        print(f"Markdown written to {docx_url}")
+        assert storage.exists("test_doc.docx") is True
+
+        read_md_content = storage.read_text("test_doc.docx")
+        # Pandoc might add extra newlines or slightly change formatting
+        assert "Markdown Header" in read_md_content
+        assert "This is a test" in read_md_content
+        print("Markdown file read correctly after conversion.")
+
+    except Exception as e:
+        pytest.fail(f"M365Storage test failed: {e}")
+
+    finally:
+        # Cleanup - this is tricky without delete functionality.
+        # For now, we manually delete or rely on test folder cleanup.
+        print("Test finished. Manual cleanup of test files may be needed.")
 
 
 @pytest.mark.skipif(

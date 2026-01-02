@@ -14,7 +14,7 @@ from youtube_to_docs.llms import (
     get_model_pricing,
 )
 from youtube_to_docs.models import MODEL_SUITES
-from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage
+from youtube_to_docs.storage import GoogleDriveStorage, LocalStorage, M365Storage
 from youtube_to_docs.transcript import (
     extract_audio,
     fetch_transcript,
@@ -180,6 +180,11 @@ def main(args_list: list[str] | None = None) -> None:
         print(f"Using Google Workspace storage. Output: {outfile}")
         storage = GoogleDriveStorage(outfile)
         outfile_path = "youtube-docs.csv"  # Relative to root_folder_id
+        base_dir = "."
+    elif outfile == "sharepoint":
+        print("Using SharePoint storage.")
+        storage = M365Storage(outfile)
+        outfile_path = "youtube-docs.xlsx"
         base_dir = "."
     else:
         print(f"Using Local storage. Output: {outfile}")

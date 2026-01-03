@@ -81,7 +81,9 @@ skip-magic-trailing-comma = false
 line-ending = "auto"
 
 [tool.ty.environment]
-# Target Python 3.14 to match project requirements
 python-version = "3.14"
+
+[tool.ty.src]
+exclude = ["scripts"]
 
 

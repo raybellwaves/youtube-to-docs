@@ -13,6 +13,8 @@ This directory contains regression tests for the `youtube-to-docs` tool.
 - **[regression_workspace.py](regression_workspace.py)**: A run that stores results in Google Drive (specifically a folder named `youtube-to-docs-test-drive`).
 - **[regression_workspace_es.py](regression_workspace_es.py)**: A Spanish run that stores results in Google Drive using Gemini Pro models.
 - **[regression_sharepoint.py](regression_sharepoint.py)**: A run that stores results in SharePoint/OneDrive (specifically a folder named `youtube-to-docs-artifacts`). Uses `foundry-gpt-5-mini` for summarization.
+- **[regression_two_vids.py](regression_two_vids.py)**: Processes two videos (`B0x2I_doX9o,Cu27fBy-kHQ`) with `gemini-3-flash-preview` and no YouTube summary (`-nys`).
+- **[regression_two_vids_verbose.py](regression_two_vids_verbose.py)**: Same as above but with verbose output enabled.
 
 ## Usage
 
@@ -44,4 +46,16 @@ or
 
 ```bash
 uv run python scripts/regression/regression_sharepoint.py
+```
+
+or
+
+```bash
+uv run python scripts/regression/regression_two_vids.py
+```
+
+or
+
+```bash
+uv run python scripts/regression/regression_two_vids_verbose.py
 ```

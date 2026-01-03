@@ -87,6 +87,7 @@ def run_regression(
     no_youtube_summary: bool = False,
     output_target: Optional[str] = None,
     all_gemini_arg: Optional[str] = None,
+    verbose: bool = False,
 ):
     """Runs the full regression suite for a single video."""
     print(
@@ -120,6 +121,9 @@ def run_regression(
 
     if all_gemini_arg:
         cmd.extend(["--all", all_gemini_arg])
+
+    if verbose:
+        cmd.append("--verbose")
 
     print(f"Executing: {' '.join(cmd)}")
     result = subprocess.run(cmd, capture_output=False)

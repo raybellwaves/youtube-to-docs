@@ -1,4 +1,5 @@
 import argparse
+import logging
 import os
 import re
 import time
@@ -27,6 +28,21 @@ from youtube_to_docs.transcript import (
 from youtube_to_docs.tts import process_tts
 from youtube_to_docs.utils import normalize_model_name, reorder_columns
 from youtube_to_docs.video import process_videos
+
+
+class VerboseRow(dict):
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        print(f"Updated column: {key}")
+
+    def update(self, *args, **kwargs):
+        super().update(*args, **kwargs)
+        if args:
+            if isinstance(args[0], dict):
+                for k in args[0]:
+                    print(f"Updated column: {k}")
+        for k in kwargs:
+            print(f"Updated column: {k}")
 
 
 def main(args_list: list[str] | None = None) -> None:
@@ -143,8 +159,25 @@ def main(args_list: list[str] | None = None) -> None:
             "Also sets `--no-youtube-summary`."
         ),
     )
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        default=False,
+        help="Enable verbose output.",
+    )
 
     args = parser.parse_args(args_list)
+
+    verbose = args.verbose
+
+    if not verbose:
+        # Suppress "Both GOOGLE_API_KEY and GEMINI_API_KEY are set" warning
+        # from google-genai library unless verbose is enabled.
+        logging.getLogger("google_genai._api_client").setLevel(logging.ERROR)
+
+    def vprint(*args, **kwargs):
+        if verbose:
+            print(*args, **kwargs)
 
     if args.all in MODEL_SUITES:
         suite = MODEL_SUITES[args.all]
@@ -178,7 +211,7 @@ def main(args_list: list[str] | None = None) -> None:
     # Setup Output Directories
     # Setup Storage
     if outfile in ("sharepoint", "s"):
-        print(f"Using SharePoint storage. Output: {outfile}")
+        vprint(f"Using SharePoint storage. Output: {outfile}")
         storage = M365Storage()
         outfile_path = "youtube-docs.csv"
         base_dir = "."
@@ -189,12 +222,12 @@ def main(args_list: list[str] | None = None) -> None:
         and "\\" not in outfile
     ):
         # Heuristic: "workspace" or looks like a Folder ID
-        print(f"Using Google Workspace storage. Output: {outfile}")
+        vprint(f"Using Google Workspace storage. Output: {outfile}")
         storage = GoogleDriveStorage(outfile)
         outfile_path = "youtube-docs.csv"  # Relative to root_folder_id
         base_dir = "."
     else:
-        print(f"Using Local storage. Output: {outfile}")
+        vprint(f"Using Local storage. Output: {outfile}")
         storage = LocalStorage()
         output_dir = os.path.dirname(outfile)
         storage.ensure_directory(output_dir)  # Ensure parent of CSV exists
@@ -225,22 +258,22 @@ def main(args_list: list[str] | None = None) -> None:
     # Load existing CSV if it exists
     existing_df = storage.load_dataframe(outfile_path)
     if existing_df is not None:
-        print(f"Loaded existing data from {outfile} ({len(existing_df)} rows)")
+        vprint(f"Loaded existing data from {outfile} ({len(existing_df)} rows)")
     else:
-        print(f"No existing data found at {outfile}. Starting fresh.")
+        vprint(f"No existing data found at {outfile}. Starting fresh.")
 
-    print(f"Processing {len(video_ids)} videos.")
-    print(f"Processing Videos: {video_ids}")
-    print(f"Saving to: {outfile}")
+    vprint(f"Processing {len(video_ids)} videos.")
+    vprint(f"Processing Videos: {video_ids}")
+    vprint(f"Saving to: {outfile}")
     if model_names:
-        print(f"Summarizing using models: {model_names}")
-    print(f"Target Languages: {languages}")
+        vprint(f"Summarizing using models: {model_names}")
+    vprint(f"Target Languages: {languages}")
 
     rows = []
 
     for video_id in video_ids:
         url = f"https://www.youtube.com/watch?v={video_id}"
-        print(f"Processing Video ID: {video_id}")
+        vprint(f"Processing Video ID: {video_id}")
 
         # Check if video already exists in CSV
         existing_row = None
@@ -254,6 +287,8 @@ def main(args_list: list[str] | None = None) -> None:
 
         # Prepare row data, starting with existing or empty
         row = existing_row.copy() if existing_row else {}
+        if verbose:
+            row = VerboseRow(row)
         row["URL"] = url  # Ensure URL is there
 
         # --- Language Independent Logic ---
@@ -290,7 +325,8 @@ def main(args_list: list[str] | None = None) -> None:
             tags = row.get("Tags", "")
             video_duration = row.get("Duration", "")
 
-        print(f"Video Title: {video_title}")
+        display_title = video_title if video_title else video_id
+        print(f"Video Title: {display_title}")
 
         safe_title = re.sub(r'[\\/*?:"><>|]', "_", video_title).replace("\n", " ")
         safe_title = safe_title.replace("\r", "")
@@ -320,7 +356,7 @@ def main(args_list: list[str] | None = None) -> None:
 
                 current_save_df = reorder_columns(current_save_df)
                 storage.save_dataframe(current_save_df, outfile_path)
-                print(f"Created/Updated {outfile} with initial details.")
+                vprint(f"Created/Updated {outfile} with initial details.")
             except Exception as e:
                 print(f"Warning: Could not perform initial save: {e}")
 
@@ -333,7 +369,7 @@ def main(args_list: list[str] | None = None) -> None:
                 # Check if it exists in storage (by convention)
                 expected_audio = os.path.join(audio_dir, f"{video_id}.m4a")
                 if storage.exists(expected_audio):
-                    print(f"Found existing audio file: {expected_audio}")
+                    vprint(f"Found existing audio file: {expected_audio}")
                     row["Audio File"] = (
                         storage.get_full_path(expected_audio)
                         if hasattr(storage, "get_full_path")
@@ -352,7 +388,7 @@ def main(args_list: list[str] | None = None) -> None:
                 pass
             else:
                 # Need to extract
-                print(f"Extracting audio for {transcript_arg}...")
+                vprint(f"Extracting audio for {transcript_arg}...")
                 local_audio_path = extract_audio(video_id, local_audio_dir)
                 if local_audio_path:
                     # Upload to storage
@@ -360,13 +396,13 @@ def main(args_list: list[str] | None = None) -> None:
                     uploaded_path_or_link = storage.upload_file(
                         local_audio_path, target_audio_path, content_type="audio/mp4"
                     )
-                    print(f"Audio saved to: {uploaded_path_or_link}")
+                    vprint(f"Audio saved to: {uploaded_path_or_link}")
                     row["Audio File"] = uploaded_path_or_link
                     audio_file_path = uploaded_path_or_link
 
         # --- Language Dependent Logic ---
         for language in languages:
-            print(f"--- Processing Language: {language} ---")
+            vprint(f"--- Processing Language: {language} ---")
             col_suffix = f" ({language})" if language != "en" else ""
             lang_str = f" ({language})" if language != "en" else ""
 
@@ -420,7 +456,7 @@ def main(args_list: list[str] | None = None) -> None:
 
                     try:
                         saved_path = storage.write_text(target_path, youtube_transcript)
-                        print(f"Saved YouTube transcript ({language}): {filename}")
+                        vprint(f"Saved YouTube transcript ({language}): {filename}")
 
                         # Update row with YouTube transcript info
                         if is_generated:
@@ -442,7 +478,7 @@ def main(args_list: list[str] | None = None) -> None:
                 )
                 if en_path and storage.exists(str(en_path)):
                     youtube_transcript = storage.read_text(str(en_path))
-                    print(
+                    vprint(
                         "Using existing English transcript as fallback for "
                         f"{language} processing."
                     )
@@ -451,7 +487,7 @@ def main(args_list: list[str] | None = None) -> None:
                     en_result = fetch_transcript(video_id, language="en")
                     if en_result:
                         youtube_transcript, en_is_generated = en_result
-                        print(
+                        vprint(
                             f"Fetched English transcript as fallback for {language} "
                             "processing."
                         )
@@ -471,7 +507,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 saved_path = storage.write_text(
                                     target_path, youtube_transcript
                                 )
-                                print(f"Saved fallback English transcript: {filename}")
+                                vprint(f"Saved fallback English transcript: {filename}")
                                 if en_is_generated:
                                     row["Transcript File youtube generated"] = (
                                         saved_path
@@ -523,7 +559,7 @@ def main(args_list: list[str] | None = None) -> None:
 
                     if not audio_input_path and audio_file_path:
                         # Try to get it locally via storage abstraction
-                        print(f"Retrieving audio file locally: {audio_file_path}")
+                        vprint(f"Retrieving audio file locally: {audio_file_path}")
                         audio_input_path = storage.get_local_file(
                             audio_file_path, download_dir=local_audio_dir
                         )
@@ -531,7 +567,7 @@ def main(args_list: list[str] | None = None) -> None:
                     if not audio_input_path:
                         print(f"Error: Audio file not found for STT: {audio_file_path}")
                     else:
-                        print(
+                        vprint(
                             f"Generating transcript using model: {transcript_arg} "
                             f"({language})..."
                         )
@@ -546,7 +582,7 @@ def main(args_list: list[str] | None = None) -> None:
 
                         try:
                             saved_path = storage.write_text(target_path, ai_transcript)
-                            print(f"Saved AI transcript: {filename}")
+                            vprint(f"Saved AI transcript: {filename}")
                             row[ai_col] = saved_path
                         except Exception as e:
                             print(f"Error writing AI transcript: {e}")
@@ -558,7 +594,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 stt_out / 1_000_000
                             ) * output_price
                             row[stt_cost_col] = round(stt_cost, 2)
-                            print(f"STT cost: ${row[stt_cost_col]:.2f}")
+                            vprint(f"STT cost: ${row[stt_cost_col]:.2f}")
 
                 # If AI transcript exists (either found or generated),
                 # use it for summaries
@@ -570,7 +606,7 @@ def main(args_list: list[str] | None = None) -> None:
                 )
 
             if not transcript:
-                print(
+                vprint(
                     f"No transcript (YouTube or AI) available for {video_id} "
                     f"({language}). Skipping further processing for this language."
                 )
@@ -631,11 +667,11 @@ def main(args_list: list[str] | None = None) -> None:
                         )
                         if en_path and storage.exists(str(en_path)):
                             speaker_source_transcript = storage.read_text(str(en_path))
-                            print(
+                            vprint(
                                 "Using English transcript for speaker extraction "
                                 f"({model_name})."
                             )
-                    print(f"Extracting speakers using model: {model_name}")
+                    vprint(f"Extracting speakers using model: {model_name}")
                     speakers_text, speakers_input, speakers_output = extract_speakers(
                         model_name, speaker_source_transcript
                     )
@@ -655,7 +691,7 @@ def main(args_list: list[str] | None = None) -> None:
                         target_path = os.path.join(speakers_dir, speakers_filename)
                         try:
                             saved_path = storage.write_text(target_path, speakers_text)
-                            print(f"Saved speakers: {speakers_filename}")
+                            vprint(f"Saved speakers: {speakers_filename}")
                             row[speakers_file_col_name] = saved_path
                         except Exception as e:
                             print(f"Error writing speakers file: {e}")
@@ -667,7 +703,7 @@ def main(args_list: list[str] | None = None) -> None:
                             speakers_output / 1_000_000
                         ) * output_price
                         row[speaker_cost_col_name] = round(speaker_cost, 2)
-                        print(f"Speaker extraction cost: ${speaker_cost:.2f}")
+                        vprint(f"Speaker extraction cost: ${speaker_cost:.2f}")
 
                 # QA Generation
                 qa_col_name = f"QA Text {model_name} from {transcript_arg}{col_suffix}"
@@ -696,7 +732,7 @@ def main(args_list: list[str] | None = None) -> None:
                         row[qa_col_name] = storage.read_text(str(path))
 
                 if not row.get(qa_col_name):
-                    print(f"Generating Q&A using model: {model_name} ({language})")
+                    vprint(f"Generating Q&A using model: {model_name} ({language})")
                     qa_text, qa_input, qa_output = generate_qa(
                         model_name, transcript, speakers_text, language=language
                     )
@@ -714,7 +750,7 @@ def main(args_list: list[str] | None = None) -> None:
                         target_path = os.path.join(qa_dir, qa_filename)
                         try:
                             saved_path = storage.write_text(target_path, qa_text)
-                            print(f"Saved Q&A: {qa_filename}")
+                            vprint(f"Saved Q&A: {qa_filename}")
                             row[qa_file_col_name] = saved_path
                         except Exception as e:
                             print(f"Error writing Q&A file: {e}")
@@ -729,7 +765,7 @@ def main(args_list: list[str] | None = None) -> None:
                         ) * output_price
                         qa_cost = round(qa_cost, 2)
                         row[qa_cost_col_name] = qa_cost
-                        print(f"Q&A cost: ${qa_cost:.2f}")
+                        vprint(f"Q&A cost: ${qa_cost:.2f}")
 
                 # Check if we already have it in the row (from existing_row
                 # or just loaded)
@@ -743,7 +779,7 @@ def main(args_list: list[str] | None = None) -> None:
                             and row[summary_cost_col_name] != row[summary_cost_col_name]
                         )
                     ):  # Check for NaN
-                        print(f"Backfilling cost for model: {model_name}")
+                        vprint(f"Backfilling cost for model: {model_name}")
                         input_price, output_price = get_model_pricing(model_name)
                         if input_price is not None and output_price is not None:
                             # Estimate tokens: ~4 chars per token
@@ -771,7 +807,7 @@ def main(args_list: list[str] | None = None) -> None:
 
                             summary_cost = round(summary_cost, 2)
                             row[summary_cost_col_name] = summary_cost
-                            print(f"Estimated summary cost: ${summary_cost:.2f}")
+                            vprint(f"Estimated summary cost: ${summary_cost:.2f}")
                     elif speakers_input > 0 or speakers_output > 0:
                         # Cost exists, but we generated speakers. Add that cost.
                         input_price, output_price = get_model_pricing(model_name)
@@ -781,7 +817,7 @@ def main(args_list: list[str] | None = None) -> None:
                             ) * output_price
                             current_cost = row[summary_cost_col_name]
                             row[summary_cost_col_name] = round(current_cost + s_cost, 2)
-                            print(
+                            vprint(
                                 "Updated cost with speakers: "
                                 f"${row[summary_cost_col_name]:.2f}"
                             )
@@ -808,7 +844,7 @@ def main(args_list: list[str] | None = None) -> None:
                             print(f"Warning: Failed to read summary file {path}: {e}")
 
                 if not row.get(summary_col_name):
-                    print(f"Summarizing using model: {model_name} ({language})")
+                    vprint(f"Summarizing using model: {model_name} ({language})")
                     summary_text, input_tokens, output_tokens = generate_summary(
                         model_name, transcript, video_title, url, language=language
                     )
@@ -824,7 +860,7 @@ def main(args_list: list[str] | None = None) -> None:
                             total_output / 1_000_000
                         ) * output_price
                         summary_cost = round(summary_cost, 2)
-                        print(f"Summary cost: ${summary_cost:.2f}")
+                        vprint(f"Summary cost: ${summary_cost:.2f}")
 
                     summary_full_path = ""
                     if summaries_dir and summary_text:
@@ -837,7 +873,7 @@ def main(args_list: list[str] | None = None) -> None:
                             summary_full_path = storage.write_text(
                                 target_path, summary_text
                             )
-                            print(f"Saved summary: {summary_filename}")
+                            vprint(f"Saved summary: {summary_filename}")
                         except Exception as e:
                             print(f"Error writing summary: {e}")
 
@@ -856,7 +892,7 @@ def main(args_list: list[str] | None = None) -> None:
                 )
 
                 if row.get(summary_col_name) and not row.get(one_sentence_col_name):
-                    print(
+                    vprint(
                         f"Generating one sentence summary using model: {model_name} "
                         f"({language})"
                     )
@@ -877,7 +913,7 @@ def main(args_list: list[str] | None = None) -> None:
                         ) * output_price
                         cost = round(cost, 2)
                         row[one_sentence_cost_col_name] = cost
-                        print(f"One sentence summary cost: ${cost:.2f}")
+                        vprint(f"One sentence summary cost: ${cost:.2f}")
 
                 # --- Secondary Speaker Extraction from YouTube (if applicable) ---
                 yt_speakers_text = 'float("nan")'
@@ -916,7 +952,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 yt_speakers_text = storage.read_text(str(path))
                                 row[yt_speakers_col_name] = yt_speakers_text
                             except Exception as e:
-                                print(
+                                vprint(
                                     "Warning: Failed to read YouTube speakers file "
                                     f"{path}: {e}"
                                 )
@@ -939,11 +975,11 @@ def main(args_list: list[str] | None = None) -> None:
                             if en_path and os.path.exists(str(en_path)):
                                 with open(str(en_path), "r", encoding="utf-8") as f:
                                     yt_speaker_source_transcript = f.read()
-                                    print(
+                                    vprint(
                                         "Using English transcript for YouTube speaker "
                                         f"extraction ({model_name})."
                                     )
-                        print(
+                        vprint(
                             f"Extracting speakers using model: {model_name} "
                             "(Source: YouTube Transcript)"
                         )
@@ -976,7 +1012,9 @@ def main(args_list: list[str] | None = None) -> None:
                                 saved_path = storage.write_text(
                                     target_path, yt_speakers_text
                                 )
-                                print(f"Saved YouTube speakers: {yt_speakers_filename}")
+                                vprint(
+                                    f"Saved YouTube speakers: {yt_speakers_filename}"
+                                )
                                 row[yt_speakers_file_col_name] = saved_path
                             except Exception as e:
                                 print(f"Error writing YouTube speakers file: {e}")
@@ -991,7 +1029,7 @@ def main(args_list: list[str] | None = None) -> None:
                             ) * output_price
                             yt_speaker_cost = round(yt_speaker_cost, 2)
                             row[yt_speaker_cost_col_name] = yt_speaker_cost
-                            print(
+                            vprint(
                                 "YouTube Speaker extraction cost: "
                                 f"${yt_speaker_cost:.2f}"
                             )
@@ -1028,12 +1066,12 @@ def main(args_list: list[str] | None = None) -> None:
                             try:
                                 row[yt_qa_col_name] = storage.read_text(str(path))
                             except Exception as e:
-                                print(
+                                vprint(
                                     "Warning: Failed to read YouTube Q&A file "
                                     f"{path}: {e}"
                                 )
                     if not row.get(yt_qa_col_name):
-                        print(
+                        vprint(
                             f"Generating Q&A using model: {model_name} "
                             "(Source: YouTube Transcript)"
                         )
@@ -1059,7 +1097,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 yt_qa_out / 1_000_000
                             ) * output_price
                             yt_qa_cost = round(cost, 2)
-                            print(f"YouTube Q&A cost: ${yt_qa_cost:.2f}")
+                            vprint(f"YouTube Q&A cost: ${yt_qa_cost:.2f}")
 
                         yt_qa_full_path = ""
                         if row[yt_qa_col_name] and not isinstance(
@@ -1075,7 +1113,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 yt_qa_full_path = storage.write_text(
                                     target_path, row[yt_qa_col_name]
                                 )
-                                print(f"Saved YouTube Q&A: {qa_filename}")
+                                vprint(f"Saved YouTube Q&A: {qa_filename}")
                             except Exception as e:
                                 print(f"Error writing YouTube Q&A: {e}")
 
@@ -1116,13 +1154,13 @@ def main(args_list: list[str] | None = None) -> None:
                             try:
                                 row[yt_sum_col_name] = storage.read_text(str(path))
                             except Exception as e:
-                                print(
+                                vprint(
                                     "Warning: Failed to read YouTube summary file "
                                     f"{path}: {e}"
                                 )
 
                     if not row.get(yt_sum_col_name):
-                        print(
+                        vprint(
                             f"Summarizing using model: {model_name} "
                             "(Source: YouTube Transcript)"
                         )
@@ -1151,7 +1189,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 yt_output_tokens / 1_000_000
                             ) * output_price
                             yt_summary_cost = round(cost, 2)
-                            print(f"YouTube Summary cost: ${yt_summary_cost:.2f}")
+                            vprint(f"YouTube Summary cost: ${yt_summary_cost:.2f}")
 
                         yt_summary_full_path = ""
                         if summaries_dir and yt_summary_text:
@@ -1165,7 +1203,7 @@ def main(args_list: list[str] | None = None) -> None:
                                 yt_summary_full_path = storage.write_text(
                                     target_path, yt_summary_text
                                 )
-                                print(f"Saved YouTube summary: {summary_filename}")
+                                vprint(f"Saved YouTube summary: {summary_filename}")
                             except Exception as e:
                                 print(f"Error writing YouTube summary: {e}")
 
@@ -1185,7 +1223,7 @@ def main(args_list: list[str] | None = None) -> None:
                     if row.get(yt_sum_col_name) and not row.get(
                         yt_one_sentence_col_name
                     ):
-                        print(
+                        vprint(
                             "Generating one sentence summary using "
                             f"model: {model_name} "
                             "(Source: YouTube Transcript)"
@@ -1207,7 +1245,7 @@ def main(args_list: list[str] | None = None) -> None:
                             ) * output_price
                             cost = round(cost, 2)
                             row[yt_one_sentence_cost_col_name] = cost
-                            print(f"YouTube one sentence summary cost: ${cost:.2f}")
+                            vprint(f"YouTube one sentence summary cost: ${cost:.2f}")
 
             # Infographic Generation
             if infographic_arg:
@@ -1267,7 +1305,7 @@ def main(args_list: list[str] | None = None) -> None:
                         if summary_file_path
                         else "unknown file"
                     )
-                    print(
+                    vprint(
                         f"Generating infographic using model {infographic_arg} "
                         f"from {summary_filename}"
                     )
@@ -1277,7 +1315,7 @@ def main(args_list: list[str] | None = None) -> None:
                     if image_bytes:
                         try:
                             saved_path = storage.write_bytes(expected_path, image_bytes)
-                            print(f"Saved infographic: {infographic_filename}")
+                            vprint(f"Saved infographic: {infographic_filename}")
                             row[info_col] = saved_path
 
                             # Calculate Infographic Cost
@@ -1294,13 +1332,37 @@ def main(args_list: list[str] | None = None) -> None:
                                     f"{infographic_arg} ($)"
                                 )
                                 row[cost_col] = cost
-                                print(f"Infographic cost: ${cost:.2f}")
+                                vprint(f"Infographic cost: ${cost:.2f}")
 
                         except Exception as e:
                             print(f"Error writing infographic: {e}")
 
+        if not verbose:
+            oss = next(
+                (
+                    v
+                    for k, v in row.items()
+                    if "One Sentence Summary" in k and isinstance(v, str)
+                ),
+                None,
+            )
+            if oss:
+                print(f"Summary: {oss}")
+            else:
+                trans = next(
+                    (
+                        v
+                        for k, v in row.items()
+                        if "Transcript File" in k and isinstance(v, str)
+                    ),
+                    None,
+                )
+                if trans:
+                    print(f"Transcript: {trans}")
+
         rows.append(row)
         time.sleep(1)
+        print()
 
     final_df = None
 
@@ -1328,10 +1390,10 @@ def main(args_list: list[str] | None = None) -> None:
             temp_df = reorder_columns(final_df)
             # We use the same path, updating the sheet
             intermediate_path = storage.save_dataframe(temp_df, outfile_path)
-            print(f"Intermediate save (pre-TTS/Video): {intermediate_path}")
+            vprint(f"Intermediate save (pre-TTS/Video): {intermediate_path}")
 
         if tts_arg:
-            print("Checking for TTS generation...")
+            vprint("Checking for TTS generation...")
             # TTS will scan all columns, so it should pick up the new
             # language columns too
             final_df = process_tts(
@@ -1340,7 +1402,7 @@ def main(args_list: list[str] | None = None) -> None:
             should_save = True
 
         if combine_info_audio:
-            print("Checking for Video generation...")
+            vprint("Checking for Video generation...")
             final_df = process_videos(final_df, storage, base_dir)
             should_save = True
 
@@ -1349,9 +1411,9 @@ def main(args_list: list[str] | None = None) -> None:
             saved_path = storage.save_dataframe(final_df, outfile_path)
             print(f"Successfully wrote {len(final_df)} rows to {saved_path}")
         else:
-            print("No new data to gather or all videos already processed.")
+            vprint("No new data to gather or all videos already processed.")
     else:
-        print("No new data to gather or all videos already processed.")
+        vprint("No new data to gather or all videos already processed.")
 
     # Cleanup local temp dir
     if os.path.exists(local_temp_dir):

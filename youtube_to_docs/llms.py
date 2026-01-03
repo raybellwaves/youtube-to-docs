@@ -4,7 +4,6 @@ from typing import Any, Dict, List, Tuple, cast
 import google.auth
 import requests
 from google import genai
-from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.genai import types
 from openai import OpenAI
 
@@ -78,30 +77,78 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
 
     elif model_name.startswith("vertex"):
         try:
+            import subprocess
+
+            from google.auth.exceptions import RefreshError
+            from google.auth.transport.requests import AuthorizedSession
+
             vertex_project_id = os.environ["PROJECT_ID"]
-            vertex_credentials, _ = google.auth.default()
             actual_model_name = model_name.replace("vertex-", "")
 
             if actual_model_name.startswith("claude"):
-                if vertex_credentials.expired:
-                    vertex_credentials.refresh(GoogleAuthRequest())
-                access_token = vertex_credentials.token
                 endpoint = (
                     "https://us-east5-aiplatform.googleapis.com/v1/"
                     f"projects/{vertex_project_id}/locations/us-east5/"
                     f"publishers/anthropic/models/{actual_model_name}:rawPredict"
                 )
-                headers = {
-                    "Authorization": f"Bearer {access_token}",
-                    "Content-Type": "application/json; charset=utf-8",
-                }
+                # ... existing claude logic ...
                 payload = {
                     "anthropic_version": "vertex-2023-10-16",
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": 64_000,
                     "stream": False,
                 }
-                response = requests.post(endpoint, headers=headers, json=payload)
+                headers = {"Content-Type": "application/json; charset=utf-8"}
+
+                vertex_api_key = os.environ.get("VERTEXAI_API_KEY")
+                response = None
+
+                if vertex_api_key:
+                    # Use API Key if available
+                    response = requests.post(
+                        endpoint,
+                        json=payload,
+                        headers=headers,
+                        params={"key": vertex_api_key},
+                    )
+                    # If API key is not supported or fails, we will try ADC fallback
+                    if response.status_code != 200:
+                        print(
+                            f"Vertex API Key failed (Status {response.status_code})."
+                            " Falling back to ADC..."
+                        )
+                        response = None
+
+                if response is None:
+                    # Fallback to Application Default Credentials
+                    vertex_credentials, _ = google.auth.default()
+                    authed_session = AuthorizedSession(vertex_credentials)
+
+                    try:
+                        response = authed_session.post(
+                            endpoint, json=payload, headers=headers
+                        )
+                    except RefreshError:
+                        print(
+                            "Vertex AI Credentials expired. Launching gcloud login..."
+                        )
+                        try:
+                            # Run gcloud login interactively
+                            subprocess.run(
+                                ["gcloud", "auth", "application-default", "login"],
+                                check=True,
+                            )
+                            # Reload credentials and retry
+                            vertex_credentials, _ = google.auth.default()
+                            authed_session = AuthorizedSession(vertex_credentials)
+                            response = authed_session.post(
+                                endpoint, json=payload, headers=headers
+                            )
+                        except Exception as e:
+                            error_msg = f"Re-authentication failed: {e}"
+                            print(error_msg)
+                            return f"Error: {error_msg}", 0, 0
+
                 if response.status_code == 200:
                     response_json = response.json()
                     content_blocks = response_json.get("content", [])
@@ -122,6 +169,22 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
                         f"Vertex API Error {response.status_code}: {response.text}"
                     )
                     print(response_text)
+            elif actual_model_name.startswith("gemini"):
+                vertex_location = os.environ.get("VERTEX_LOCATION", "us-east5")
+                client = genai.Client(
+                    vertexai=True,
+                    project=vertex_project_id,
+                    location=vertex_location,
+                    http_options=types.HttpOptions(api_version="v1"),
+                )
+                response = client.models.generate_content(
+                    model=actual_model_name,
+                    contents=prompt,
+                )
+                response_text = response.text or ""
+                if response.usage_metadata:
+                    input_tokens = response.usage_metadata.prompt_token_count or 0
+                    output_tokens = response.usage_metadata.candidates_token_count or 0
 
         except KeyError:
             print(

@@ -305,6 +305,20 @@ def generate_summary(
     return _query_llm(model_name, prompt)
 
 
+def generate_one_sentence_summary(
+    model_name: str,
+    summary_text: str,
+    language: str = "en",
+) -> Tuple[str, int, int]:
+    """Generates a one sentence summary from the provided summary text."""
+    prompt = (
+        f"Can you please summarize the following text into one sentence in {language}?"
+        "\n\n"
+        f"{summary_text}"
+    )
+    return _query_llm(model_name, prompt)
+
+
 def extract_speakers(model_name: str, transcript: str) -> Tuple[str, int, int]:
     """
     Extracts speakers from the transcript.

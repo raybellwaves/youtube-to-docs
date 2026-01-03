@@ -260,6 +260,8 @@ def verify_output(
                 f"{norm_m} summary cost from {source}{col_suffix} ($)",
                 f"{norm_m} QA cost from {source}{col_suffix} ($)",
                 f"{norm_m} Speaker extraction cost from {source} ($)",  # No suffix
+                f"One Sentence Summary {model} from {source}{col_suffix}",
+                f"{norm_m} one sentence summary cost from {source}{col_suffix} ($)",
             ]
             expected_columns.extend(source_cols)
 

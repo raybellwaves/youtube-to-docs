@@ -70,9 +70,9 @@ class TestReorderColumns(unittest.TestCase):
         expected_order_subset = [
             "URL",
             "Transcript File B",
-            "Gemini STT cost",
             "Summary File A",
             "Video File",
+            "Gemini STT cost",
             "Gemini Speaker extraction cost ($)",
             "Random",
         ]

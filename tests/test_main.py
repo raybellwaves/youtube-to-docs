@@ -285,6 +285,7 @@ class TestMain(unittest.TestCase):
             "Channel",
             "Tags",
             "Duration",
+            "Transcript File human generated",
             "Transcript characters from youtube",
         ]
         for i, col in enumerate(expected_start):
@@ -640,6 +641,57 @@ class TestMain(unittest.TestCase):
         # Check if generate_infographic was called with gemini-3-pro-image-preview
         mock_gen_info.assert_called()
         self.assertEqual(mock_gen_info.call_args.args[0], "gemini-3-pro-image-preview")
+
+    @patch("youtube_to_docs.main.get_youtube_service")
+    @patch("youtube_to_docs.main.resolve_video_ids")
+    @patch("youtube_to_docs.main.get_video_details")
+    @patch("youtube_to_docs.main.fetch_transcript")
+    @patch("youtube_to_docs.main.get_model_pricing")
+    @patch("youtube_to_docs.main.generate_summary")
+    @patch("youtube_to_docs.main.generate_one_sentence_summary")
+    @patch("os.makedirs")
+    def test_one_sentence_summary_column(
+        self,
+        mock_makedirs,
+        mock_gen_one_sentence,
+        mock_gen_summary,
+        mock_get_pricing,
+        mock_fetch_trans,
+        mock_details,
+        mock_resolve,
+        mock_svc,
+    ):
+        mock_resolve.return_value = ["vid1"]
+        mock_details.return_value = (
+            "Title 1",
+            "Desc",
+            "2023-01-01",
+            "Chan",
+            "Tags",
+            "0:01:00",
+            "url1",
+        )
+        mock_fetch_trans.return_value = ("Transcript 1", False)
+        mock_gen_summary.return_value = ("Summary 1", 100, 50)
+        mock_gen_one_sentence.return_value = ("One Sentence Summary 1", 10, 10)
+        mock_get_pricing.return_value = (0.0, 0.0)
+
+        with patch(
+            "sys.argv", ["main.py", "vid1", "-o", self.outfile, "-m", "gemini-test"]
+        ):
+            with patch("builtins.open", mock_open()):
+                main.main()
+
+        self.assertTrue(os.path.exists(self.outfile))
+        df = pl.read_csv(self.outfile)
+        self.assertEqual(len(df), 1)
+        self.assertEqual(
+            df[0, "One Sentence Summary gemini-test from youtube"],
+            "One Sentence Summary 1",
+        )
+        self.assertIn(
+            "gemini-test one sentence summary cost from youtube ($)", df.columns
+        )
 
 
 if __name__ == "__main__":

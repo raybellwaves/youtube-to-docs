@@ -9,6 +9,7 @@ from rich_argparse import RichHelpFormatter
 from youtube_to_docs.infographic import generate_infographic
 from youtube_to_docs.llms import (
     extract_speakers,
+    generate_one_sentence_summary,
     generate_qa,
     generate_summary,
     generate_transcript,
@@ -844,6 +845,40 @@ def main(args_list: list[str] | None = None) -> None:
                     row[summary_col_name] = summary_text
                     row[summary_cost_col_name] = summary_cost
 
+                # One Sentence Summary Generation
+                one_sentence_col_name = (
+                    f"One Sentence Summary {model_name} from "
+                    f"{transcript_arg}{col_suffix}"
+                )
+                one_sentence_cost_col_name = (
+                    f"{normalize_model_name(model_name)} one sentence summary cost "
+                    f"from {transcript_arg}{col_suffix} ($)"
+                )
+
+                if row.get(summary_col_name) and not row.get(one_sentence_col_name):
+                    print(
+                        f"Generating one sentence summary using model: {model_name} "
+                        f"({language})"
+                    )
+                    (
+                        one_sentence_text,
+                        os_input,
+                        os_output,
+                    ) = generate_one_sentence_summary(
+                        model_name, row[summary_col_name], language=language
+                    )
+                    row[one_sentence_col_name] = one_sentence_text
+
+                    # Cost
+                    input_price, output_price = get_model_pricing(model_name)
+                    if input_price is not None and output_price is not None:
+                        cost = (os_input / 1_000_000) * input_price + (
+                            os_output / 1_000_000
+                        ) * output_price
+                        cost = round(cost, 2)
+                        row[one_sentence_cost_col_name] = cost
+                        print(f"One sentence summary cost: ${cost:.2f}")
+
                 # --- Secondary Speaker Extraction from YouTube (if applicable) ---
                 yt_speakers_text = 'float("nan")'
                 yt_speakers_input = 0
@@ -1137,6 +1172,42 @@ def main(args_list: list[str] | None = None) -> None:
                         row[yt_sum_file_col_name] = yt_summary_full_path
                         row[yt_sum_col_name] = yt_summary_text
                         row[yt_sum_cost_col_name] = yt_summary_cost
+
+                    # One Sentence Summary for YouTube Summary
+                    yt_one_sentence_col_name = (
+                        f"One Sentence Summary {model_name} from youtube{col_suffix}"
+                    )
+                    yt_one_sentence_cost_col_name = (
+                        f"{normalize_model_name(model_name)} one sentence summary "
+                        f"cost from youtube{col_suffix} ($)"
+                    )
+
+                    if row.get(yt_sum_col_name) and not row.get(
+                        yt_one_sentence_col_name
+                    ):
+                        print(
+                            "Generating one sentence summary using "
+                            f"model: {model_name} "
+                            "(Source: YouTube Transcript)"
+                        )
+                        (
+                            yt_one_sentence_text,
+                            yt_os_input,
+                            yt_os_output,
+                        ) = generate_one_sentence_summary(
+                            model_name, row[yt_sum_col_name], language=language
+                        )
+                        row[yt_one_sentence_col_name] = yt_one_sentence_text
+
+                        # Cost
+                        input_price, output_price = get_model_pricing(model_name)
+                        if input_price is not None and output_price is not None:
+                            cost = (yt_os_input / 1_000_000) * input_price + (
+                                yt_os_output / 1_000_000
+                            ) * output_price
+                            cost = round(cost, 2)
+                            row[yt_one_sentence_cost_col_name] = cost
+                            print(f"YouTube one sentence summary cost: ${cost:.2f}")
 
             # Infographic Generation
             if infographic_arg:

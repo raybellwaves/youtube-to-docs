@@ -156,7 +156,7 @@ def main(args_list: list[str] | None = None) -> None:
             "`gemini-pro`: summarization (`gemini-3-pro-preview`), "
             "TTS (`gemini-2.5-pro-preview-tts-Kore`), "
             "and Infographic (`gemini-3-pro-image-preview`). \n"
-            "`gemini-flash-pro-infographic`: summarization (`gemini-3-flash-preview`), "
+            "`gemini-flash-pro-image`: summarization (`gemini-3-flash-preview`), "
             "TTS (`gemini-2.5-flash-preview-tts-Kore`), "
             "and Infographic (`gemini-3-pro-image-preview`). \n"
             "Also sets `--no-youtube-summary`."

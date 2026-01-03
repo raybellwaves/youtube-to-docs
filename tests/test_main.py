@@ -707,7 +707,7 @@ class TestMain(unittest.TestCase):
     @patch("youtube_to_docs.main.extract_speakers")
     @patch("youtube_to_docs.main.generate_qa")
     @patch("os.makedirs")
-    def test_all_gemini_flash_pro_infographic_flag(
+    def test_all_gemini_flash_pro_image_flag(
         self,
         mock_makedirs,
         mock_gen_qa,
@@ -749,7 +749,7 @@ class TestMain(unittest.TestCase):
                 "-o",
                 self.outfile,
                 "--all",
-                "gemini-flash-pro-infographic",
+                "gemini-flash-pro-image",
             ],
         ):
             main.main()

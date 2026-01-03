@@ -16,7 +16,7 @@ Processes a YouTube video to generate transcripts, summaries, Q&A, and infograph
 - **no_youtube_summary**: (Optional) If `True`, skips generating a secondary summary from the YouTube transcript when using an AI model for the primary transcript.
 - **languages**: (Optional) Target language(s) (e.g., 'es', 'fr', 'en'). Defaults to 'en'.
 - **combine_infographic_audio**: (Optional) If `True`, combines the infographic and audio summary into a video file (MP4). Requires `tts_model` and `infographic_model`.
-- **all_suite**: (Optional) Shortcut to use a specific model suite for everything (e.g. 'gemini-flash', 'gemini-pro').
+- **all_suite**: (Optional) Shortcut to use a specific model suite for everything (e.g. 'gemini-flash', 'gemini-pro', 'gemini-flash-pro-image').
 - **verbose**: (Optional) If `True`, enables verbose output.
 
 ## Usage Instructions

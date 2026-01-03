@@ -144,6 +144,7 @@ def verify_output(
     no_youtube_summary: bool = False,
     output_target: Optional[str] = None,
     all_gemini_arg: Optional[str] = None,
+    verbose: bool = False,
 ):
     """Verifies that the output CSV exists and contains expected columns and files."""
     print(
@@ -244,9 +245,10 @@ def verify_output(
                 [
                     f"Transcript characters from {transcript_model}{col_suffix}",
                     f"Transcript File {transcript_model} generated{col_suffix}",
-                    f"{norm_t} STT cost{col_suffix} ($)",
                 ]
             )
+            if verbose:
+                expected_columns.append(f"{norm_t} STT cost{col_suffix} ($)")
 
         # Summarization/QA/Speaker columns
         sources = [transcript_model]
@@ -261,23 +263,32 @@ def verify_output(
                 f"QA File {model} from {source}{col_suffix}",
                 f"Speakers {model} from {source}",  # No suffix
                 f"Speakers File {model} from {source}",  # No suffix
-                f"{norm_m} summary cost from {source}{col_suffix} ($)",
-                f"{norm_m} QA cost from {source}{col_suffix} ($)",
-                f"{norm_m} Speaker extraction cost from {source} ($)",  # No suffix
                 f"One Sentence Summary {model} from {source}{col_suffix}",
-                f"{norm_m} one sentence summary cost from {source}{col_suffix} ($)",
             ]
+
+            if verbose:
+                source_cols.extend(
+                    [
+                        f"{norm_m} summary cost from {source}{col_suffix} ($)",
+                        f"{norm_m} QA cost from {source}{col_suffix} ($)",
+                        f"{norm_m} Speaker extraction cost from {source} ($)",
+                        f"{norm_m} one sentence summary cost from "
+                        f"{source}{col_suffix} ($)",
+                    ]
+                )
+
             expected_columns.extend(source_cols)
 
             if infographic_model:
                 # m_name in main.py is the summary text column key without prefix
                 m_name = f"{model} from {source}{col_suffix}"
-                expected_columns.extend(
-                    [
-                        f"Summary Infographic File {m_name} {infographic_model}",
-                        (f"Summary Infographic Cost {m_name} {infographic_model} ($)"),
-                    ]
+                expected_columns.append(
+                    f"Summary Infographic File {m_name} {infographic_model}",
                 )
+                if verbose:
+                    expected_columns.append(
+                        f"Summary Infographic Cost {m_name} {infographic_model} ($)"
+                    )
 
             if tts_model:
                 expected_columns.append(

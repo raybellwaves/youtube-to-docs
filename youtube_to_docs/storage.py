@@ -1,4 +1,5 @@
 import atexit
+import base64
 import io
 import json
 import os
@@ -539,7 +540,7 @@ class GoogleDriveStorage(Storage):
                                     "sheetId": sheet_id,
                                     "gridProperties": {
                                         "frozenRowCount": 1,
-                                        "frozenColumnCount": 2,
+                                        "frozenColumnCount": 1,
                                     },
                                 },
                                 "fields": (
@@ -750,10 +751,29 @@ class M365Storage(Storage):
 
         return f"{self.ROOT_FOLDER_NAME}/{clean_path}"
 
+    def _get_item_from_url(self, url: str) -> Optional[dict]:
+        # Use shares API to resolve webUrl to DriveItem
+        # 1. Base64 encode
+        b64 = base64.b64encode(url.encode("utf-8")).decode("utf-8")
+        # 2. Make URL safe
+        encoded_url = "u!" + b64.rstrip("=").replace("/", "_").replace("+", "-")
+
+        api_url = f"https://graph.microsoft.com/v1.0/shares/{encoded_url}/driveItem"
+        headers = {"Authorization": f"Bearer {self.token}"}
+
+        try:
+            resp = requests.get(api_url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as e:
+            print(f"Warning: Failed to resolve URL {url}: {e}")
+
+        return None
+
     def _get_item(self, path: str) -> Optional[dict]:
         """Gets item metadata from Graph API."""
         if path.startswith("http"):
-            return None  # Can't easily look up by URL without parsing
+            return self._get_item_from_url(path)
 
         remote_path = self._get_full_remote_path(path)
         if remote_path in self.item_cache:
@@ -942,7 +962,7 @@ class M365Storage(Storage):
             remote_path = self._get_full_remote_path(xlsx_path)
 
             with io.BytesIO() as output:
-                df.write_excel(output)
+                df.write_excel(output, freeze_panes=(1, 1))
                 xlsx_bytes = output.getvalue()
 
             item = self._upload(

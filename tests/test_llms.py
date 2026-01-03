@@ -39,9 +39,9 @@ class TestLLMs(unittest.TestCase):
         self.assertEqual(in_tokens, 100)
         self.assertEqual(out_tokens, 50)
 
-    @patch("youtube_to_docs.llms.requests.post")
+    @patch("google.auth.transport.requests.AuthorizedSession")
     @patch("google.auth.default")
-    def test_generate_summary_vertex(self, mock_auth, mock_post):
+    def test_generate_summary_vertex(self, mock_auth, mock_authed_session):
         mock_creds = MagicMock()
         mock_creds.token = "fake_token"
         mock_creds.expired = False
@@ -53,7 +53,10 @@ class TestLLMs(unittest.TestCase):
             "content": [{"text": "Vertex Summary"}],
             "usage": {"input_tokens": 100, "output_tokens": 50},
         }
-        mock_post.return_value = mock_resp
+
+        # Mock the post method of the AuthorizedSession instance.
+        mock_session_instance = mock_authed_session.return_value
+        mock_session_instance.post.return_value = mock_resp
 
         summary, in_tokens, out_tokens = llms.generate_summary(
             "vertex-claude-3-5", "transcript", "Title", "url"

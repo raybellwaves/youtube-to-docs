@@ -13,7 +13,7 @@ This script benchmarks the time it takes for different LLM models to generate a 
 To run the script, use `uv run`:
 
 ```bash
-uv run scripts/performance/time_to_summary.py
+uv run --extra all scripts/performance/time_to_summary.py
 ```
 
 #### What it does:

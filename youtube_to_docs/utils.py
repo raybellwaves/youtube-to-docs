@@ -21,7 +21,7 @@ def format_clickable_path(path: str) -> str:
         abs_path = os.path.abspath(path)
         uri = Path(abs_path).as_uri()
         return f"[link={uri}]{path}[/link]"
-    except Exception:
+    except (ValueError, OSError):
         return path
 
 

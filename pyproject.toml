@@ -14,7 +14,7 @@ test = [
 
 [project]
 name = "youtube-to-docs"
-version = "0.0.36"
+version = "0.0.37"
 description = "Convert YouTube videos into structured docs, summaries, audio, and visual assets for easier discovery"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -66,6 +66,7 @@ exclude = [
     "tests*",
     "docs*",
     "scripts*",
+    "commands*",
     "youtube-to-docs-artifacts*",
     "summary-files*",
     "transcript-files*",

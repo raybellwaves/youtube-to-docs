@@ -111,12 +111,12 @@ To run type checks:
 uv tool run ty check
 ```
 
-### Pre-commit
+### Prek
 
-To run pre-commit hook:
+To run prek hooks:
 
 ```bash
-uv tool run pre-commit run --all-files
+uv tool run prek run --all-files
 ```
 
 ## Documentation

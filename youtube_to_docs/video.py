@@ -12,7 +12,13 @@ from youtube_to_docs.utils import format_clickable_path
 def create_video(image_path: str, audio_path: str, output_path: str) -> bool:
     """Creates an MP4 video from an image and an audio file using ffmpeg."""
     # Use static_ffmpeg to ensure ffmpeg is available
-    from static_ffmpeg import run
+    try:
+        from static_ffmpeg import run
+    except ImportError as e:
+        raise ImportError(
+            "Missing dependencies for audio/video processing. "
+            'Please run with: uvx "youtube-to-docs[all]"'
+        ) from e
 
     try:
         ffmpeg_path, _ = run.get_or_fetch_platform_executables_else_raise()

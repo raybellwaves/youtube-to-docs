@@ -395,6 +395,7 @@ def _transcribe_gcp(
     Requires 'YTD_GCS_BUCKET_NAME' env var for temporary storage.
     """
     try:
+        from google.api_core.client_options import ClientOptions
         from google.cloud import speech_v2, storage
         from google.cloud.speech_v2.types import cloud_speech
     except ImportError:
@@ -420,6 +421,15 @@ def _transcribe_gcp(
     if actual_model == "chirp3":
         actual_model = "chirp_3"  # specific fix based on user example
 
+    # Determine location
+    # Chirp models are often regional (e.g. us-central1), not global.
+    location = os.environ.get("GOOGLE_CLOUD_LOCATION")
+    if not location:
+        if "chirp" in actual_model:
+            location = "us-central1"
+        else:
+            location = "global"
+
     # 1. Upload to GCS
     try:
         storage_client = storage.Client(project=project_id)
@@ -437,8 +447,13 @@ def _transcribe_gcp(
 
     try:
         # 2. Transcribe
+        client_options = None
+        if location != "global":
+            api_endpoint = f"{location}-speech.googleapis.com"
+            client_options = ClientOptions(api_endpoint=api_endpoint)
+
         # Instantiates a client
-        client = speech_v2.SpeechClient()
+        client = speech_v2.SpeechClient(client_options=client_options)
 
         config = cloud_speech.RecognitionConfig(
             auto_decoding_config=cloud_speech.AutoDetectDecodingConfig(),
@@ -471,7 +486,7 @@ def _transcribe_gcp(
         file_metadata = cloud_speech.BatchRecognizeFileMetadata(uri=gcs_uri)
 
         request = cloud_speech.BatchRecognizeRequest(
-            recognizer=f"projects/{project_id}/locations/global/recognizers/_",
+            recognizer=f"projects/{project_id}/locations/{location}/recognizers/_",
             config=config,
             files=[file_metadata],
             recognition_output_config=cloud_speech.RecognitionOutputConfig(

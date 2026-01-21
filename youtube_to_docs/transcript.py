@@ -19,11 +19,17 @@ from youtube_transcript_api import (
 
 def extract_audio(video_id: str, output_dir: str) -> Optional[str]:
     """Extracts audio from a YouTube video using yt-dlp."""
-    import static_ffmpeg
-    import yt_dlp
+    try:
+        import static_ffmpeg
+        import yt_dlp
 
-    # Ensure ffmpeg is in path
-    static_ffmpeg.add_paths()
+        # Ensure ffmpeg is in path
+        static_ffmpeg.add_paths()
+    except ImportError as e:
+        raise ImportError(
+            "Missing dependencies for audio/video processing. "
+            'Please run with: uvx "youtube-to-docs[all]"'
+        ) from e
 
     url = f"https://www.youtube.com/watch?v={video_id}"
     os.makedirs(output_dir, exist_ok=True)

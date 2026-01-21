@@ -38,6 +38,8 @@ azure = [
 ]
 gcp = [
     "google-genai",
+    "google-cloud-speech>=2.29.0",
+    "google-cloud-storage",
 ]
 workspace = [
     "google-auth-oauthlib",

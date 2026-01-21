@@ -79,7 +79,8 @@ Use this when the user specifies particular models or output locations.
     *   **SharePoint**: `output_file='sharepoint'` (Requires `m365` extra).
 *   **Transcription Source**:
     *   Default is YouTube captions.
-    *   To use AI for transcription (STT), set `transcript_source` to a model name (e.g., `'gemini-3-flash-preview'`) (Requires `audio` extra).
+    *   To use AI for transcription (STT), set `transcript_source` to a model name (e.g., `'gemini-3-flash-preview'` or `'gcp-chirp3'`).
+    *   **Note**: `gcp-` models require `GOOGLE_CLOUD_PROJECT` and optional `YTD_GCS_BUCKET_NAME` environment variables.
 
 ## Tool Reference: `process_video`
 
@@ -94,7 +95,7 @@ Use this when the user specifies particular models or output locations.
 | `combine_infographic_audio` | Boolean. If True, creates an MP4 video. | `video` | `True` |
 | `languages` | Target language(s). | - | `es`, `fr`, `en` |
 | `output_file` | Destination for the CSV report. | `workspace` / `m365` | `workspace`, `sharepoint` |
-| `transcript_source` | Source for transcript (default: 'youtube'). | `audio` (for AI STT) | `gemini-3-flash-preview` |
+| `transcript_source` | Source for transcript (default: 'youtube'). | `audio`, `gcp` (for Chirp) | `gemini-3-flash-preview`, `gcp-chirp3` |
 
 ## Examples
 

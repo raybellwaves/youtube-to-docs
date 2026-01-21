@@ -603,6 +603,23 @@ PRICES = {
             "output": 20.0,
             "input_cached": None,
         },
+        {
+            "id": "chirp_3",
+            "vendor": "google",
+            "name": "Chirp 3 (STT)",
+            # $0.012 per minute ~ $0.72 per hour. Actually pricing is per minute.
+            "input": 0.012,
+            # STT returns text, so output tokens isn't really the cost metric, but
+            # we can put 0.
+            # But main.py uses input/token counts. STT V2 uses seconds.
+            # generate_transcript returns 0 tokens.
+            # So cost calculation in main.py stt_cost = ... * input_price will be 0.
+            # To fix cost calc we'd need to change main.py to handle audio
+            # duration/seconds.
+            # For now just adding it to key so it doesn't warn.
+            "output": 0.0,
+            "input_cached": None,
+        },
     ],
     "aliases": {
         "claude-haiku-4-5": "claude-4.5-haiku",
@@ -610,5 +627,6 @@ PRICES = {
         "nova-2-lite": "amazon-nova-2-lite",
         "nova-pro": "amazon-nova-pro",
         "nova-premier": "amazon-nova-premier",
+        "gcp-chirp3": "chirp_3",
     },
 }

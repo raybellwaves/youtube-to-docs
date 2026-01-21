@@ -97,8 +97,10 @@ def main(args_list: list[str] | None = None) -> None:
         help=(
             "The transcript source to use. \n"
             "Can be `youtube` (default) to fetch existing YouTube transcripts, \n"
-            "or an AI model name (e.g. `gemini-3-flash-preview`) to perform STT on "
-            "extracted audio."
+            "or an AI model name (e.g. `gemini-3-flash-preview`, `gcp-chirp3`) to "
+            "perform STT on extracted audio. \n"
+            "For `gcp-` models (Cloud Speech-to-Text V2), `GOOGLE_CLOUD_PROJECT` "
+            "is required and `YTD_GCS_BUCKET_NAME` is optional/recommended."
         ),
     )
     parser.add_argument(

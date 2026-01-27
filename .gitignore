@@ -207,10 +207,11 @@ marimo/_lsp/
 __marimo__/
 
 youtube-to-docs-artifacts/
-alt-text-files/
+infographic-alt-text/
 audio-files/
 infographic-files/
 one-sentence-summary-files/
+srt-files/
 qa-files/
 speaker-extraction-files/
 summary-files/

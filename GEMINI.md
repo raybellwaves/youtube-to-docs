@@ -55,7 +55,7 @@ Here are the following args for the tool:
 5.  **Artifact Storage**: Note that granular textual artifacts are saved to:
     *   `tag-files/`: AI-generated tags.
     *   `one-sentence-summary-files/`: One-sentence summaries.
-    *   `alt-text-files/`: Multimodal infographic alt text.
+    *   `infographic-alt-text/`: Multimodal infographic alt text.
     *   `srt-files/`: SRT transcript files (both YouTube and AI generated).
     *   `qa-files/`: Q&A markdown files (now includes "Timestamp" and "Timestamp URL" as markdown hyperlinks).
     *   These are linked as columns in the output CSV.

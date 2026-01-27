@@ -289,7 +289,7 @@ def main(args_list: list[str] | None = None) -> None:
     video_dir = os.path.join(base_dir, "video-files")
     one_sentence_summaries_dir = os.path.join(base_dir, "one-sentence-summary-files")
     tags_dir = os.path.join(base_dir, "tag-files")
-    alt_text_dir = os.path.join(base_dir, "alt-text-files")
+    alt_text_dir = os.path.join(base_dir, "infographic-alt-text")
     srt_dir = os.path.join(base_dir, "srt-files")
 
     # Local temp dir for processing (Audio/TTS require local files)
@@ -1583,7 +1583,7 @@ def main(args_list: list[str] | None = None) -> None:
                         f"Summary Infographic Alt Text {m_name} {infographic_arg}"
                     )
                     alt_text_file_col = (
-                        f"Summary Infographic Alt Text File {m_name} {infographic_arg}"
+                        f"Infographic Alt Text Path {m_name} {infographic_arg}"
                     )
 
                     # 1. Check if both already exist in row

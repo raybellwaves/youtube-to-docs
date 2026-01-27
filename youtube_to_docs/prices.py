@@ -625,8 +625,11 @@ PRICES = {
         "claude-haiku-4-5": "claude-4.5-haiku",
         "claude-sonnet-4-5": "claude-sonnet-4.5",
         "nova-2-lite": "amazon-nova-2-lite",
+        "nova-lite": "amazon-nova-lite",
+        "nova-micro": "amazon-nova-micro",
         "nova-pro": "amazon-nova-pro",
         "nova-premier": "amazon-nova-premier",
+        "bedrock-nova-lite-v1": "amazon-nova-lite",
         "gcp-chirp3": "chirp_3",
     },
 }

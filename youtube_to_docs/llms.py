@@ -51,6 +51,9 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
     input_tokens = 0
     output_tokens = 0
 
+    if model_name.startswith("nova") or model_name.startswith("claude"):
+        model_name = "bedrock-" + model_name
+
     if model_name.startswith("gemini"):
         try:
             from google import genai
@@ -205,10 +208,21 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
         try:
             aws_bearer_token_bedrock = os.environ["AWS_BEARER_TOKEN_BEDROCK"]
             actual_model_name = model_name.replace("bedrock-", "")
-            if actual_model_name.startswith("claude"):
-                actual_model_name = f"us.anthropic.{actual_model_name}:0"
-            elif actual_model_name.startswith("nova"):
-                actual_model_name = f"us.amazon.{actual_model_name}:0"
+            if "claude" in actual_model_name:
+                if not actual_model_name.startswith(
+                    "anthropic."
+                ) and not actual_model_name.startswith("us.anthropic."):
+                    actual_model_name = f"us.anthropic.{actual_model_name}:0"
+            elif "nova" in actual_model_name:
+                if not actual_model_name.startswith(
+                    "amazon."
+                ) and not actual_model_name.startswith("us.amazon."):
+                    actual_model_name = f"us.amazon.{actual_model_name}:0"
+                if not actual_model_name.endswith(":0"):
+                    actual_model_name = f"{actual_model_name}:0"
+            elif "llama" in actual_model_name:
+                if not actual_model_name.startswith("meta."):
+                    actual_model_name = f"meta.{actual_model_name}"
 
             endpoint = (
                 f"https://bedrock-runtime.us-east-1.amazonaws.com/model/"
@@ -310,6 +324,9 @@ def generate_transcript(
     Currently only supports Gemini models.
     Returns (transcript_text, input_tokens, output_tokens).
     """
+    if model_name.startswith("nova") or model_name.startswith("claude"):
+        model_name = "bedrock-" + model_name
+
     if model_name.startswith("gcp-"):
         return _transcribe_gcp(model_name, audio_path, url, language, srt)
 
@@ -746,61 +763,160 @@ def generate_alt_text(
     Generates alt text for an infographic based on the generated image.
     Returns (alt_text, input_tokens, output_tokens).
     """
-    if not model_name.startswith("gemini"):
-        return f"Error: Multimodal alt text not yet implemented for {model_name}", 0, 0
+    if model_name.startswith("nova") or model_name.startswith("claude"):
+        model_name = "bedrock-" + model_name
 
-    try:
-        from google import genai
-        from google.genai import types
+    prompt = (
+        f"Please provide a descriptive alt text for this infographic "
+        f"in {language}. "
+        "The alt text should describe the visual layout and key information "
+        "presented, making it accessible for someone who cannot see the image. "
+        "Start the response immediately with the alt text."
+    )
 
-        GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
-        client = genai.Client(api_key=GEMINI_API_KEY)
+    if model_name.startswith("gemini"):
+        try:
+            from google import genai
+            from google.genai import types
 
-        prompt = (
-            f"Please provide a descriptive alt text for this infographic "
-            f"in {language}. "
-            "The alt text should describe the visual layout and key information "
-            "presented, making it accessible for someone who cannot see the image. "
-            "Start the response immediately with the alt text."
-        )
+            GEMINI_API_KEY = os.environ["GEMINI_API_KEY"]
+            client = genai.Client(api_key=GEMINI_API_KEY)
 
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_bytes(
-                        mime_type="image/png",
-                        data=image_bytes,
-                    ),
-                    types.Part.from_text(text=prompt),
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_bytes(
+                            mime_type="image/png",
+                            data=image_bytes,
+                        ),
+                        types.Part.from_text(text=prompt),
+                    ],
+                ),
+            ]
+
+            generate_content_config = types.GenerateContentConfig()
+
+            response = client.models.generate_content(
+                model=model_name,
+                contents=contents,
+                config=generate_content_config,
+            )
+
+            response_text = response.text or ""
+            # Post-processing: Remove common prefixes like "Alt text: " or "Alt text - "
+            response_text = re.sub(
+                r"^(Alt text[:\-\s]+)", "", response_text, flags=re.IGNORECASE
+            ).strip()
+
+            input_tokens = 0
+            output_tokens = 0
+            if response.usage_metadata:
+                input_tokens = response.usage_metadata.prompt_token_count or 0
+                output_tokens = response.usage_metadata.candidates_token_count or 0
+
+            return response_text, input_tokens, output_tokens
+
+        except KeyError:
+            return "Error: GEMINI_API_KEY not found", 0, 0
+        except Exception as e:
+            print(f"Gemini Alt Text Error: {e}")
+            return f"Error: {e}", 0, 0
+
+    elif model_name.startswith("bedrock"):
+        try:
+            import base64
+
+            aws_bearer_token_bedrock = os.environ["AWS_BEARER_TOKEN_BEDROCK"]
+            actual_model_name = model_name.replace("bedrock-", "")
+
+            # Mapping (shared logic with _query_llm could be refactored later)
+            if "claude" in actual_model_name:
+                if not actual_model_name.startswith(
+                    "anthropic."
+                ) and not actual_model_name.startswith("us.anthropic."):
+                    actual_model_name = f"us.anthropic.{actual_model_name}:0"
+            elif "nova" in actual_model_name:
+                if not actual_model_name.startswith(
+                    "amazon."
+                ) and not actual_model_name.startswith("us.amazon."):
+                    actual_model_name = f"us.amazon.{actual_model_name}:0"
+                if not actual_model_name.endswith(":0"):
+                    actual_model_name = f"{actual_model_name}:0"
+
+            endpoint = (
+                f"https://bedrock-runtime.us-east-1.amazonaws.com/model/"
+                f"{actual_model_name}/converse"
+            )
+
+            # Convert images bytes to base64
+            image_base64 = base64.b64encode(image_bytes).decode("utf-8")
+
+            payload = {
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "image": {
+                                    "format": "png",
+                                    "source": {"bytes": image_base64},
+                                }
+                            },
+                            {"text": prompt},
+                        ],
+                    }
                 ],
-            ),
-        ]
+                "max_tokens": 2048,
+            }
 
-        generate_content_config = types.GenerateContentConfig()
+            response = requests.post(
+                endpoint,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {aws_bearer_token_bedrock}",
+                },
+                json=payload,
+            )
 
-        response = client.models.generate_content(
-            model=model_name,
-            contents=contents,
-            config=generate_content_config,
-        )
+            if response.status_code == 200:
+                response_json = response.json()
+                try:
+                    content_blocks = response_json["output"]["message"]["content"]
+                    if (
+                        content_blocks
+                        and isinstance(content_blocks, list)
+                        and "text" in content_blocks[0]
+                    ):
+                        response_text = content_blocks[0]["text"]
+                        # Post-processing
+                        response_text = re.sub(
+                            r"^(Alt text[:\-\s]+)",
+                            "",
+                            response_text,
+                            flags=re.IGNORECASE,
+                        ).strip()
 
-        response_text = response.text or ""
-        # Post-processing: Remove common prefixes like "Alt text: " or "Alt text - "
-        response_text = re.sub(
-            r"^(Alt text[:\-\s]+)", "", response_text, flags=re.IGNORECASE
-        ).strip()
+                        usage = response_json.get("usage", {})
+                        return (
+                            response_text,
+                            usage.get("inputTokens", 0),
+                            usage.get("outputTokens", 0),
+                        )
+                    else:
+                        return f"Unexpected content format: {response.text}", 0, 0
+                except KeyError:
+                    return f"Unexpected response structure: {response.text}", 0, 0
+            else:
+                return (
+                    f"Bedrock API Error {response.status_code}: {response.text}",
+                    0,
+                    0,
+                )
+        except KeyError:
+            return "Error: AWS_BEARER_TOKEN_BEDROCK required", 0, 0
+        except Exception as e:
+            print(f"Bedrock Alt Text Error: {e}")
+            return f"Error: {e}", 0, 0
 
-        input_tokens = 0
-        output_tokens = 0
-        if response.usage_metadata:
-            input_tokens = response.usage_metadata.prompt_token_count or 0
-            output_tokens = response.usage_metadata.candidates_token_count or 0
-
-        return response_text, input_tokens, output_tokens
-
-    except KeyError:
-        return "Error: GEMINI_API_KEY not found", 0, 0
-    except Exception as e:
-        print(f"Gemini Alt Text Error: {e}")
-        return f"Error: {e}", 0, 0
+    return f"Error: Multimodal alt text not yet implemented for {model_name}", 0, 0

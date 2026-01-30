@@ -75,6 +75,7 @@ class TestGCPSTT(unittest.TestCase):
             mock_batch_result.uri = (
                 "gs://test-bucket/temp/transcripts/ytd_audio_1234_transcript.json"
             )
+            mock_batch_result.error = None  # Ensure no error is triggered
 
             # Setup transcript JSON content
             mock_json_content = """

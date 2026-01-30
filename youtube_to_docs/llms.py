@@ -706,6 +706,18 @@ def _transcribe_gcp(
         # We need to find the output URI from the response.
         if gcs_uri in response.results:
             batch_result = response.results[gcs_uri]
+
+            # Check for errors first
+            if batch_result.error and batch_result.error.code != 0:
+                error_msg = batch_result.error.message or "Unknown error"
+                return (
+                    f"Error from Speech API: {error_msg} "
+                    f"(code: {batch_result.error.code})",
+                    "",
+                    0,
+                    0,
+                )
+
             output_uri = batch_result.uri
             if not output_uri:
                 return (
@@ -723,8 +735,9 @@ def _transcribe_gcp(
 
                 print(f"Downloading transcript from {output_uri}...", flush=True)
 
-                max_retries = 3
-                retry_delay = 2
+                # Increased retries and delay for GCS eventual consistency
+                max_retries = 10
+                retry_delay = 5
                 json_content = None
                 last_err = None
 
@@ -735,11 +748,21 @@ def _transcribe_gcp(
                     except Exception as e:
                         last_err = e
                         if attempt < max_retries - 1:
+                            wait_time = min(
+                                retry_delay * (2**attempt), 60
+                            )  # exponential backoff capped at 60s
                             print(
-                                f"GCS download attempt {attempt + 1} failed: {e}. "
-                                f"Retrying in {retry_delay}s..."
+                                f"GCS download attempt {attempt + 1}/"
+                                f"{max_retries} failed: {e}. "
+                                f"Retrying in {wait_time}s..."
                             )
-                            time.sleep(retry_delay)
+                            time.sleep(wait_time)
+                        else:
+                            print(
+                                f"GCS download attempt {attempt + 1}/"
+                                f"{max_retries} failed: {e}. "
+                                "No more retries."
+                            )
 
                 if json_content is None:
                     return (

@@ -3,7 +3,7 @@ Script to re-authenticate with Google services by deleting the cached token
 and triggering a new OAuth flow.
 
 Usage:
-    uv run scripts/reauthenticate_google.py
+    uv sync --extra workspace && uv run scripts/reauthenticate_google.py
 """
 
 from pathlib import Path

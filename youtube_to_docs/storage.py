@@ -159,10 +159,7 @@ class LocalStorage(Storage):
 class GoogleDriveStorage(Storage):
     """Implementation of Storage for Google Drive."""
 
-    SCOPES = [
-        "https://www.googleapis.com/auth/drive.file",
-        "https://www.googleapis.com/auth/documents",
-    ]
+    SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 
     def __init__(self, output_arg: str):
         self.creds = self._get_creds()

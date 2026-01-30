@@ -313,12 +313,35 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
     return response_text, input_tokens, output_tokens
 
 
+def generate_transcript_with_srt(
+    model_name: str,
+    audio_path: str,
+    url: str,
+    language: str = "en",
+    duration_seconds: Optional[float] = None,
+) -> Tuple[str, str, int, int]:
+    """
+    Generates both transcript text and SRT content from audio in a single call.
+    Only supported for GCP models. For other models, call generate_transcript twice.
+    Returns (transcript_text, srt_content, input_tokens, output_tokens).
+    """
+    if model_name.startswith("nova") or model_name.startswith("claude"):
+        model_name = "bedrock-" + model_name
+
+    if model_name.startswith("gcp-"):
+        return _transcribe_gcp(model_name, audio_path, url, language, duration_seconds)
+
+    # For non-GCP models, return empty SRT (caller should use generate_transcript)
+    return "", "", 0, 0
+
+
 def generate_transcript(
     model_name: str,
     audio_path: str,
     url: str,
     language: str = "en",
     srt: bool = False,
+    duration_seconds: Optional[float] = None,
 ) -> Tuple[str, int, int]:
     """
     Generates a transcript from an audio file using the specified model.
@@ -329,7 +352,12 @@ def generate_transcript(
         model_name = "bedrock-" + model_name
 
     if model_name.startswith("gcp-"):
-        return _transcribe_gcp(model_name, audio_path, url, language, srt)
+        text, srt_content, in_tok, out_tok = _transcribe_gcp(
+            model_name, audio_path, url, language, duration_seconds
+        )
+        if srt:
+            return srt_content, in_tok, out_tok
+        return text, in_tok, out_tok
 
     if not model_name.startswith("gemini"):
         return f"Error: STT not yet implemented for model {model_name}", 0, 0
@@ -408,10 +436,11 @@ def _transcribe_gcp(
     audio_path: str,
     url: str,
     language: str = "en",
-    srt: bool = False,
-) -> Tuple[str, int, int]:
+    duration_seconds: Optional[float] = None,
+) -> Tuple[str, str, int, int]:
     """
     Transcribes audio using Google Cloud Speech-to-Text V2 API.
+    Returns (transcript_text, srt_content, input_tokens, output_tokens).
     Requires 'YTD_GCS_BUCKET_NAME' env var for temporary storage.
     """
     try:
@@ -420,8 +449,9 @@ def _transcribe_gcp(
         from google.cloud.speech_v2.types import cloud_speech
     except ImportError:
         return (
-            "Error: google-cloud-speech and google-cloud-storage are required for "
-            "GCP models. Install with `pip install '.[gcp]'`",
+            "Error: google-cloud-speech and google-cloud-storage are required "
+            "for GCP models. Install with `pip install '.[gcp]'`",
+            "",
             0,
             0,
         )
@@ -430,7 +460,12 @@ def _transcribe_gcp(
     bucket_name = os.environ.get("YTD_GCS_BUCKET_NAME", "youtube-to-docs")
 
     if not project_id:
-        return "Error: GOOGLE_CLOUD_PROJECT environment variable is required.", 0, 0
+        return (
+            "Error: GOOGLE_CLOUD_PROJECT environment variable is required.",
+            "",
+            0,
+            0,
+        )
 
     # Extract model ID (e.g. gcp-chirp3 -> chirp_3 or just pass as is if mapped?)
     actual_model = model_name.replace("gcp-", "").replace("-", "_")
@@ -446,6 +481,14 @@ def _transcribe_gcp(
         else:
             location = "global"
 
+    # Check if we can use inline output (video < 60 mins)
+    use_inline = False
+    if duration_seconds is not None and duration_seconds < 3600:
+        use_inline = True
+        print(
+            f"Video is under 60 minutes ({duration_seconds}s), using inline response."
+        )
+
     # 1. Upload to GCS
     try:
         storage_client = storage.Client(project=project_id)
@@ -453,11 +496,15 @@ def _transcribe_gcp(
         blob_name = f"temp/ytd_audio_{uuid.uuid4()}.m4a"
         blob = bucket.blob(blob_name)
 
+        print(
+            f"Uploading audio to gs://{bucket_name}/{blob_name}...",
+            flush=True,
+        )
         blob.upload_from_filename(audio_path)
         print(f"Uploaded audio to gs://{bucket_name}/{blob_name}")
         gcs_uri = f"gs://{bucket_name}/{blob_name}"
     except Exception as e:
-        return f"Error uploading to GCS: {e}", 0, 0
+        return f"Error uploading to GCS: {e}", "", 0, 0
 
     transcript_text = ""
 
@@ -481,27 +528,29 @@ def _transcribe_gcp(
             model=actual_model,
         )
 
-        if srt:
-            config.features = speech_v2.RecognitionFeatures(
-                enable_word_time_offsets=True,
-                enable_automatic_punctuation=True,
-            )
-        else:
-            config.features = speech_v2.RecognitionFeatures(
-                enable_automatic_punctuation=True,
-            )
+        # Always enable word time offsets since we return both text and SRT
+        config.features = speech_v2.RecognitionFeatures(
+            enable_word_time_offsets=True,
+            enable_automatic_punctuation=True,
+        )
 
         file_metadata = speech_v2.BatchRecognizeFileMetadata(uri=gcs_uri)
 
-        output_bucket_uri = gcs_uri.rsplit("/", 1)[0] + "/transcripts/"
+        if use_inline:
+            recognition_output_config = speech_v2.RecognitionOutputConfig(
+                inline_response_config=speech_v2.InlineOutputConfig(),
+            )
+        else:
+            output_bucket_uri = gcs_uri.rsplit("/", 1)[0] + "/transcripts/"
+            recognition_output_config = speech_v2.RecognitionOutputConfig(
+                gcs_output_config=speech_v2.GcsOutputConfig(uri=output_bucket_uri),
+            )
 
         request = speech_v2.BatchRecognizeRequest(
             recognizer=f"projects/{project_id}/locations/{location}/recognizers/_",
             config=config,
             files=[file_metadata],
-            recognition_output_config=speech_v2.RecognitionOutputConfig(
-                gcs_output_config=speech_v2.GcsOutputConfig(uri=output_bucket_uri),
-            ),
+            recognition_output_config=recognition_output_config,
         )
 
         print(f"Starting transcription with model: {model_name}...")
@@ -511,20 +560,160 @@ def _transcribe_gcp(
         start_time = time.time()
         while not operation.done():
             elapsed = int(time.time() - start_time)
-            print(f"Transcript processing... ({elapsed}s)", end="\r")
+            print(
+                f"Transcript processing... ({elapsed}s)   ",
+                end="\r",
+                flush=True,
+            )
             time.sleep(5)
-        print(f"Transcript processing... ({int(time.time() - start_time)}s) Done.")
+        print(
+            f"Transcript processing... ({int(time.time() - start_time)}s) Done.",
+            flush=True,
+        )
 
         response = operation.result()
 
-        # 3. Process GCS Output
+        # Helper for SRT formatting
+        def format_time(seconds_str):
+            if not seconds_str:
+                return "00:00:00,000"
+            total_seconds = float(seconds_str.replace("s", ""))
+            hours = int(total_seconds // 3600)
+            minutes = int((total_seconds % 3600) // 60)
+            seconds = int(total_seconds % 60)
+            milliseconds = int((total_seconds * 1000) % 1000)
+            return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
+        # Helper to process results (list of dicts or objects from alternatives)
+        def process_alternatives(
+            results_list,
+        ) -> Tuple[str, List[str]]:
+            full_text_parts = []
+            srt_entries = []
+            srt_counter = 1
+
+            for result in results_list:
+                alternatives = (
+                    result.get("alternatives", [])
+                    if isinstance(result, dict)
+                    else (
+                        result.alternatives if hasattr(result, "alternatives") else []
+                    )
+                )
+                if not alternatives:
+                    continue
+                # Handle both dict and object
+                alt = alternatives[0]
+                transcript_part = (
+                    alt.get("transcript", "")
+                    if isinstance(alt, dict)
+                    else alt.transcript
+                )
+                full_text_parts.append(transcript_part)
+
+                # Always process words for SRT generation
+                words = (
+                    alt.get("words", [])
+                    if isinstance(alt, dict)
+                    else (alt.words if hasattr(alt, "words") else [])
+                )
+                current_segment_words = []
+                current_segment_len = 0
+
+                for word_info in words:
+                    word = (
+                        word_info.get("word", "")
+                        if isinstance(word_info, dict)
+                        else word_info.word
+                    )
+                    start = (
+                        word_info.get("startOffset", "0s")
+                        if isinstance(word_info, dict)
+                        else (
+                            word_info.start_offset
+                            if hasattr(word_info, "start_offset")
+                            else "0s"
+                        )
+                    )
+                    # Handle Duration object or string with 's' suffix
+                    start = str(start)
+
+                    end = (
+                        word_info.get("endOffset", "0s")
+                        if isinstance(word_info, dict)
+                        else (
+                            word_info.end_offset
+                            if hasattr(word_info, "end_offset")
+                            else "0s"
+                        )
+                    )
+                    end = str(end)
+
+                    current_segment_words.append((word, start, end))
+                    current_segment_len += len(word) + 1
+
+                    if (
+                        word.endswith(".")
+                        or word.endswith("?")
+                        or word.endswith("!")
+                        or current_segment_len > 80
+                    ):
+                        if current_segment_words:
+                            seg_text = " ".join([w[0] for w in current_segment_words])
+                            seg_start = format_time(current_segment_words[0][1])
+                            seg_end = format_time(current_segment_words[-1][2])
+
+                            srt_entries.append(
+                                f"{srt_counter}\n"
+                                f"{seg_start} --> {seg_end}\n"
+                                f"{seg_text}\n"
+                            )
+                            srt_counter += 1
+                            current_segment_words = []
+                            current_segment_len = 0
+
+                # Flush remaining
+                if current_segment_words:
+                    seg_text = " ".join([w[0] for w in current_segment_words])
+                    seg_start = format_time(current_segment_words[0][1])
+                    seg_end = format_time(current_segment_words[-1][2])
+                    srt_entries.append(
+                        f"{srt_counter}\n{seg_start} --> {seg_end}\n{seg_text}\n"
+                    )
+                    srt_counter += 1
+
+            return " ".join(full_text_parts), srt_entries
+
+        if use_inline:
+            # Inline results are in response.results[gcs_uri].inline_result.transcript
+            # response.results is a Map<str, BatchRecognizeFileResult>
+            if gcs_uri in response.results:
+                batch_result = response.results[gcs_uri]
+                if batch_result.inline_result and batch_result.inline_result.transcript:
+                    # This is a BatchRecognizeResults object (protobuf)
+                    # results field inside transcript object
+                    results_list = batch_result.inline_result.transcript.results
+                    transcript_text, srt_entries = process_alternatives(results_list)
+                    srt_content = "\n".join(srt_entries)
+                    return transcript_text, srt_content, 0, 0
+                else:
+                    return f"Error: No inline result found for {gcs_uri}", "", 0, 0
+            else:
+                return f"Error: No result found for {gcs_uri}", "", 0, 0
+
+        # 3. Process GCS Output (Legacy/Long Videos)
         # GCP V2 BatchRecognize with GcsOutputConfig writes a JSON file.
         # We need to find the output URI from the response.
         if gcs_uri in response.results:
             batch_result = response.results[gcs_uri]
             output_uri = batch_result.uri
             if not output_uri:
-                return f"Error: No output URI found in batch result for {gcs_uri}", 0, 0
+                return (
+                    f"Error: No output URI found in batch result for {gcs_uri}",
+                    "",
+                    0,
+                    0,
+                )
             # Read the JSON from GCS with retries for eventual consistency
             try:
                 # output_uri is like gs://bucket/temp/transcripts/ytd_audio_uuid_transcript_....json
@@ -532,7 +721,7 @@ def _transcribe_gcp(
                 blob_name_out = "/".join(output_uri.split("/")[3:])
                 blob_out = storage_client.bucket(bucket_name_out).blob(blob_name_out)
 
-                print(f"Downloading transcript from {output_uri}...")
+                print(f"Downloading transcript from {output_uri}...", flush=True)
 
                 max_retries = 3
                 retry_delay = 2
@@ -553,88 +742,18 @@ def _transcribe_gcp(
                             time.sleep(retry_delay)
 
                 if json_content is None:
-                    return f"Error downloading transcript from GCS: {last_err}", 0, 0
+                    return (
+                        f"Error downloading transcript from GCS: {last_err}",
+                        "",
+                        0,
+                        0,
+                    )
 
+                print("Processing transcript JSON...", flush=True)
                 transcript_json = json.loads(json_content)
 
-                # Full text accumulator
-                full_text_parts = []
-                # SRT accumulator
-                srt_entries = []
-                srt_counter = 1
-
-                # Helper for SRT formatting
-                def format_time(seconds_str):
-                    if not seconds_str:
-                        return "00:00:00,000"
-                    total_seconds = float(seconds_str.replace("s", ""))
-                    hours = int(total_seconds // 3600)
-                    minutes = int((total_seconds % 3600) // 60)
-                    seconds = int(total_seconds % 60)
-                    milliseconds = int((total_seconds * 1000) % 1000)
-                    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
-
-                # The JSON structure for BatchRecognize V2 results is:
-                # { "results": [ { "alternatives": [ { "transcript": "...",
-                #   "words": [...] } ] } ] }
-                results = transcript_json.get("results", [])
-
-                for result in results:
-                    alternatives = result.get("alternatives", [])
-                    if not alternatives:
-                        continue
-                    alt = alternatives[0]
-                    transcript_part = alt.get("transcript", "")
-                    full_text_parts.append(transcript_part)
-
-                    if srt and "words" in alt:
-                        words = alt["words"]
-                        current_segment_words = []
-                        current_segment_len = 0
-
-                        for word_info in words:
-                            word = word_info.get("word", "")
-                            start = word_info.get("startOffset", "0s")
-                            end = word_info.get("endOffset", "0s")
-
-                            current_segment_words.append((word, start, end))
-                            current_segment_len += len(word) + 1
-
-                            if (
-                                word.endswith(".")
-                                or word.endswith("?")
-                                or word.endswith("!")
-                                or current_segment_len > 80
-                            ):
-                                if current_segment_words:
-                                    seg_text = " ".join(
-                                        [w[0] for w in current_segment_words]
-                                    )
-                                    seg_start = format_time(current_segment_words[0][1])
-                                    seg_end = format_time(current_segment_words[-1][2])
-
-                                    srt_entries.append(
-                                        f"{srt_counter}\n"
-                                        f"{seg_start} --> {seg_end}\n"
-                                        f"{seg_text}\n"
-                                    )
-                                    srt_counter += 1
-                                    current_segment_words = []
-                                    current_segment_len = 0
-
-                        # Flush remaining
-                        if current_segment_words:
-                            seg_text = " ".join([w[0] for w in current_segment_words])
-                            seg_start = format_time(current_segment_words[0][1])
-                            seg_end = format_time(current_segment_words[-1][2])
-                            srt_entries.append(
-                                f"{srt_counter}\n"
-                                f"{seg_start} --> {seg_end}\n"
-                                f"{seg_text}\n"
-                            )
-                            srt_counter += 1
-
-                transcript_text = " ".join(full_text_parts)
+                results_list = transcript_json.get("results", [])
+                transcript_text, srt_entries = process_alternatives(results_list)
 
                 # Cleanup the output JSON
                 try:
@@ -642,16 +761,14 @@ def _transcribe_gcp(
                 except Exception:
                     pass
 
-                if srt:
-                    return "\n".join(srt_entries), 0, 0
-
-                return transcript_text, 0, 0
+                srt_content = "\n".join(srt_entries)
+                return transcript_text, srt_content, 0, 0
 
             except Exception as e:
-                return f"Error parsing GCS transcript JSON: {e}", 0, 0
+                return f"Error parsing GCS transcript JSON: {e}", "", 0, 0
 
     except Exception as e:
-        return f"Error during transcription: {e}", 0, 0
+        return f"Error during transcription: {e}", "", 0, 0
     finally:
         # 3. Cleanup GCS
         try:
@@ -659,7 +776,7 @@ def _transcribe_gcp(
         except Exception:
             pass
 
-    return transcript_text, 0, 0
+    return transcript_text, "", 0, 0
 
 
 def generate_summary(

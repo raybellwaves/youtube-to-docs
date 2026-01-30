@@ -55,6 +55,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -109,6 +110,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -177,6 +179,7 @@ class TestMain(unittest.TestCase):
             "Tags 2",
             "0:02:00",
             "url2",
+            120.0,
         )
         mock_fetch_trans.return_value = ("Transcript 2", False, "")
         mock_gen_summary.return_value = ("Summary 2", 200, 100)
@@ -335,6 +338,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -396,6 +400,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -480,6 +485,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcripción 1", False, "")
         mock_gen_summary.return_value = ("Resumen 1", 100, 50)
@@ -542,6 +548,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript", False, "")
         mock_gen_summary.return_value = ("Summary", 100, 50)
@@ -619,6 +626,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -712,6 +720,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -801,6 +810,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -878,6 +888,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)
@@ -931,6 +942,7 @@ class TestMain(unittest.TestCase):
             "Tags",
             "0:01:00",
             "url1",
+            60.0,
         )
         mock_fetch_trans.return_value = ("Transcript 1", False, "")
         mock_gen_summary.return_value = ("Summary 1", 100, 50)

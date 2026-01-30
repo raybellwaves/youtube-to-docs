@@ -13,7 +13,7 @@ class TestGCPSTT(unittest.TestCase):
     @patch("youtube_to_docs.llms._transcribe_gcp")
     def test_gcp_dispatch(self, mock_transcribe):
         """Test that gcp- models are dispatched to _transcribe_gcp."""
-        mock_transcribe.return_value = ("transcript", 0, 0)
+        mock_transcribe.return_value = ("transcript", "srt_content", 0, 0)
 
         generate_transcript("gcp-chirp3", "audio.m4a", "http://url")
 
@@ -98,11 +98,86 @@ class TestGCPSTT(unittest.TestCase):
             }
 
             # Run
-            transcript, _, _ = llms._transcribe_gcp(
+            transcript, srt_content, _, _ = llms._transcribe_gcp(
                 "gcp-chirp3", "audio.m4a", "http://url"
             )
 
             self.assertEqual(transcript, "Test Transcript")
+
+            self.assertEqual(transcript, "Test Transcript")
+
+    @patch.dict(
+        os.environ,
+        {"GOOGLE_CLOUD_PROJECT": "test-project", "YTD_GCS_BUCKET_NAME": "test-bucket"},
+    )
+    @patch("uuid.uuid4", return_value="5678")
+    def test_transcribe_gcp_inline(self, mock_uuid):
+        """Test the inline logic inside _transcribe_gcp for short videos."""
+
+        # Mocks for Google Cloud libraries
+        mock_speech_module = MagicMock()
+        mock_storage_module = MagicMock()
+        mock_types_module = MagicMock()
+
+        with patch.dict(
+            sys.modules,
+            {
+                "google.cloud.speech_v2": mock_speech_module,
+                "google.cloud.storage": mock_storage_module,
+                "google.cloud.speech_v2.types": mock_types_module,
+            },
+        ):
+            from youtube_to_docs import llms
+
+            # Mock Client
+            mock_client_instance = MagicMock()
+            mock_speech_module.SpeechClient.return_value = mock_client_instance
+
+            # Mock Operation / Response
+            mock_op = MagicMock()
+            mock_client_instance.batch_recognize.return_value = mock_op
+
+            mock_result = MagicMock()
+            mock_op.result.return_value = mock_result
+
+            # Inline Result Mock
+            mock_batch_result = MagicMock()
+
+            # Setup the nested structure for inline_result.transcript.results
+            mock_inline_transcript = MagicMock()
+            mock_batch_result.inline_result.transcript = mock_inline_transcript
+
+            # Mock the transcript result object
+            # The code uses: result.alternatives[0].transcript
+            mock_transcript_item = MagicMock()
+            mock_alt = MagicMock()
+            mock_alt.transcript = "Inline Transcript"
+            # Handles both obj and dict, here we mock obj behavior
+            mock_transcript_item.alternatives = [mock_alt]
+
+            mock_inline_transcript.results = [mock_transcript_item]
+
+            # Add to response results map
+            # key is gcs_uri
+            gcs_uri = "gs://test-bucket/temp/ytd_audio_5678.m4a"
+            mock_result.results = {gcs_uri: mock_batch_result}
+
+            # Mock Storage (for upload - still happens)
+            mock_storage_client = MagicMock()
+            mock_storage_module.Client.return_value = mock_storage_client
+            mock_bucket = MagicMock()
+            mock_storage_client.bucket.return_value = mock_bucket
+            mock_blob = MagicMock()
+            mock_bucket.blob.return_value = mock_blob
+
+            # Run with short duration
+            transcript, srt_content, _, _ = llms._transcribe_gcp(
+                "gcp-chirp3", "audio.m4a", "http://url", duration_seconds=100.0
+            )
+
+            self.assertEqual(transcript, "Inline Transcript")
+            # Verify NO download_as_text called
+            mock_blob.download_as_text.assert_not_called()
 
 
 if __name__ == "__main__":

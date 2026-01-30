@@ -98,7 +98,8 @@ class TestTranscript(unittest.TestCase):
     def test_get_video_details_none(self):
         details = transcript.get_video_details("vid1", None)
         self.assertEqual(
-            details, ("", "", "", "", "", "", "https://www.youtube.com/watch?v=vid1")
+            details,
+            ("", "", "", "", "", "", "https://www.youtube.com/watch?v=vid1", 0.0),
         )
 
     def test_get_video_details_success(self):
@@ -126,6 +127,7 @@ class TestTranscript(unittest.TestCase):
         assert details is not None
         self.assertEqual(details[0], "Test Video")
         self.assertEqual(details[5], "0:01:10")  # Duration
+        self.assertEqual(details[7], 70.0)  # Duration Seconds
 
     @patch("youtube_to_docs.transcript.YouTubeTranscriptApi.list")
     def test_fetch_transcript(self, mock_list):

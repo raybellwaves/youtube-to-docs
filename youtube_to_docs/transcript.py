@@ -133,16 +133,16 @@ def resolve_video_ids(video_id_input: str, youtube_service: Optional[Any]) -> Li
 
 def get_video_details(
     video_id: str, youtube_service: Optional[Any]
-) -> Optional[Tuple[str, str, str, str, str, str, str]]:
+) -> Optional[Tuple[str, str, str, str, str, str, str, float]]:
     """
     Fetches video metadata from YouTube Data API.
     Returns a tuple of (video_title, description, publishedAt,
-    channelTitle, tags, video_duration, url).
+    channelTitle, tags, video_duration, url, video_duration_seconds).
     """
     url = f"https://www.youtube.com/watch?v={video_id}"
 
     if not youtube_service:
-        return "", "", "", "", "", "", url
+        return "", "", "", "", "", "", url, 0.0
 
     service = cast(Any, youtube_service)
     request = service.videos().list(part="snippet,contentDetails", id=video_id)
@@ -156,7 +156,9 @@ def get_video_details(
         channelTitle: str = snippet["channelTitle"]
         tags: str = ", ".join(snippet.get("tags", []))
         iso_duration: str = response["items"][0]["contentDetails"]["duration"]
-        video_duration: str = str(isodate.parse_duration(iso_duration))
+        duration_obj = isodate.parse_duration(iso_duration)
+        video_duration: str = str(duration_obj)
+        video_duration_seconds: float = duration_obj.total_seconds()
         return (
             video_title,
             description,
@@ -165,6 +167,7 @@ def get_video_details(
             tags,
             video_duration,
             url,
+            video_duration_seconds,
         )
     else:
         print(f"Warning: No details found for video ID {video_id}")

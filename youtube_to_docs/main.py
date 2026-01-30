@@ -17,6 +17,7 @@ from youtube_to_docs.llms import (
     generate_summary,
     generate_tags,
     generate_transcript,
+    generate_transcript_with_srt,
     get_model_pricing,
 )
 from youtube_to_docs.models import MODEL_SUITES
@@ -361,6 +362,7 @@ def main(args_list: list[str] | None = None) -> None:
                 tags,
                 video_duration,
                 _,
+                video_duration_seconds,
             ) = details
             row.update(
                 {
@@ -379,6 +381,8 @@ def main(args_list: list[str] | None = None) -> None:
             channelTitle = row.get("Channel", "")
             tags = row.get("Tags", "")
             video_duration = row.get("Duration", "")
+            # Approximate duration from string if not fresh, or 0.0
+            video_duration_seconds = 0.0
 
         display_title = video_title if video_title else video_id
         print(f"(Video {i} of {len(video_ids)}) Video Title: {display_title}")
@@ -688,18 +692,35 @@ def main(args_list: list[str] | None = None) -> None:
                             f"Generating transcript using model: {transcript_arg} "
                             f"({language})..."
                         )
-                        ai_transcript, stt_in, stt_out = generate_transcript(
-                            transcript_arg, audio_input_path, url, language=language
-                        )
 
-                        # Also generate SRT for AI transcript
-                        ai_srt_content, _, _ = generate_transcript(
-                            transcript_arg,
-                            audio_input_path,
-                            url,
-                            language=language,
-                            srt=True,
-                        )
+                        # Use single call for GCP models (returns both text + SRT)
+                        if transcript_arg.startswith("gcp-"):
+                            ai_transcript, ai_srt_content, stt_in, stt_out = (
+                                generate_transcript_with_srt(
+                                    transcript_arg,
+                                    audio_input_path,
+                                    url,
+                                    language=language,
+                                    duration_seconds=video_duration_seconds,
+                                )
+                            )
+                        else:
+                            # For Gemini/other models, still need two calls
+                            ai_transcript, stt_in, stt_out = generate_transcript(
+                                transcript_arg,
+                                audio_input_path,
+                                url,
+                                language=language,
+                                duration_seconds=video_duration_seconds,
+                            )
+                            ai_srt_content, _, _ = generate_transcript(
+                                transcript_arg,
+                                audio_input_path,
+                                url,
+                                language=language,
+                                srt=True,
+                                duration_seconds=video_duration_seconds,
+                            )
 
                         # Save AI transcript
                         prefix = f"{transcript_arg} generated{lang_str} - "

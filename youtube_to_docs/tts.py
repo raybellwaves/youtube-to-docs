@@ -113,6 +113,11 @@ def generate_speech_gcp(
         )
 
         text_bytes = text.encode("utf-8")
+        rprint(
+            f"[cyan]GCP TTS: input text length: {len(text)} chars, "
+            f"{len(text_bytes)} bytes[/cyan]"
+        )
+        rprint(f"[cyan]Snippet: {text[:100]!r}...[/cyan]")
         if len(text_bytes) <= 5000:
             input_text = texttospeech.SynthesisInput(text=text)
             response = client.synthesize_speech(

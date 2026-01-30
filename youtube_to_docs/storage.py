@@ -195,7 +195,8 @@ class GoogleDriveStorage(Storage):
                     rprint(f"[yellow]Warning: Could not refresh Google token: {e}[/yellow]")
                     rprint("[cyan]Triggering new authentication flow...[/cyan]")
                     creds = None
-            else:
+
+            if not creds or not creds.valid:
                 if not creds_file.exists():
                     raise FileNotFoundError(
                         f"Client secrets not found at {creds_file.absolute()}"

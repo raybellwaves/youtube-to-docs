@@ -207,6 +207,10 @@ def generate_infographic(
                     response_format="b64_json",
                 )
 
+                if not response.data or not response.data[0].b64_json:
+                    print(f"No image data found in response from {image_model}")
+                    return None, 0, 0
+
                 image_data = base64.b64decode(response.data[0].b64_json)
                 # Pricing for gpt-image-1.5 is $0.034/image -> 3400 units
                 output_tokens = 3400 if "gpt-image-1.5" in image_model else 1000

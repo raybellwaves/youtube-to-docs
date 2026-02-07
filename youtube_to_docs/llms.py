@@ -50,9 +50,9 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
     Generic function to query the specified LLM model.
     Returns (response_text, input_tokens, output_tokens).
     """
-    response_text = ""
-    input_tokens = 0
-    output_tokens = 0
+    response_text: str = ""
+    input_tokens: int = 0
+    output_tokens: int = 0
 
     if model_name.startswith("nova") or model_name.startswith("claude"):
         model_name = "bedrock-" + model_name
@@ -298,10 +298,10 @@ def _query_llm(model_name: str, prompt: str) -> Tuple[str, int, int]:
                     }
                 ],
             )
-            response_text = completion.choices[0].message.content
+            response_text = completion.choices[0].message.content or ""
             if completion.usage:
-                input_tokens = completion.usage.prompt_tokens
-                output_tokens = completion.usage.completion_tokens
+                input_tokens = completion.usage.prompt_tokens or 0
+                output_tokens = completion.usage.completion_tokens or 0
         except KeyError:
             print(
                 "Error: AZURE_FOUNDRY_ENDPOINT and AZURE_FOUNDRY_API_KEY "

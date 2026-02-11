@@ -670,8 +670,8 @@ def _transcribe_gcp(
         else:
             location = "global"
 
-    CHUNK_SIZE_SEC = 900  # 15 minutes
-    should_chunk = duration_seconds and duration_seconds > 1800
+    CHUNK_SIZE_SEC = 1140  # 19 minutes
+    should_chunk = duration_seconds and duration_seconds > 1140
 
     storage_client = storage.Client(project=project_id)
     bucket = storage_client.bucket(bucket_name)

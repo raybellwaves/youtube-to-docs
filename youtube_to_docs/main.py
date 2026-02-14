@@ -99,10 +99,12 @@ def main(args_list: list[str] | None = None) -> None:
         help=(
             "The transcript source to use. \n"
             "Can be `youtube` (default) to fetch existing YouTube transcripts, \n"
-            "or an AI model name (e.g. `gemini-3-flash-preview`, `gcp-chirp3`) to "
+            "or an AI model name (e.g. `gemini-3-flash-preview`, `gcp-chirp3`, "
+            "`aws-transcribe`) to "
             "perform STT on extracted audio. \n"
             "For `gcp-` models (Cloud Speech-to-Text V2), `GOOGLE_CLOUD_PROJECT` "
-            "is required and `YTD_GCS_BUCKET_NAME` is optional/recommended."
+            "is required and `YTD_GCS_BUCKET_NAME` is optional/recommended. \n"
+            "For `aws-transcribe`, `YTD_S3_BUCKET_NAME` is required."
         ),
     )
     parser.add_argument(
@@ -1516,12 +1518,12 @@ def main(args_list: list[str] | None = None) -> None:
                             target_path = os.path.join(summaries_dir, summary_filename)
 
                             try:
-                                yt_sum_full_path = storage.write_text(
-                                    target_path, row[yt_sum_col_name]
+                                yt_summary_full_path = storage.write_text(
+                                    target_path, yt_summary_text
                                 )
                                 rprint(
                                     f"Saved YouTube summary: "
-                                    f"{format_clickable_path(yt_sum_full_path)}"
+                                    f"{format_clickable_path(yt_summary_full_path)}"
                                 )
                             except Exception as e:
                                 print(f"Error writing YouTube summary: {e}")

@@ -16,7 +16,7 @@ test = [
 
 [project]
 name = "youtube-to-docs"
-version = "0.0.65"
+version = "0.0.66"
 description = "Convert YouTube videos into structured docs, summaries, audio, and visual assets for easier discovery"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -32,7 +32,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-aws = []
+aws = [
+    "boto3>=1.42.49",
+    "botocore[crt]",
+]
+
 azure = [
     "openai>=1.56.0",
 ]

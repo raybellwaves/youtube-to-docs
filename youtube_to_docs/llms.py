@@ -9,6 +9,16 @@ from typing import Any, Dict, List, Optional, Tuple, cast
 
 import requests
 
+try:
+    import boto3
+    from botocore.exceptions import ClientError
+except ImportError:
+    boto3: Any = None
+
+    class ClientError(Exception):
+        pass
+
+
 from youtube_to_docs.prices import PRICES
 from youtube_to_docs.utils import add_question_numbers, normalize_model_name
 
@@ -333,6 +343,9 @@ def generate_transcript_with_srt(
     if model_name.startswith("gcp-"):
         return _transcribe_gcp(model_name, audio_path, url, language, duration_seconds)
 
+    if model_name == "aws-transcribe":
+        return _transcribe_aws(model_name, audio_path, url, language, duration_seconds)
+
     # For non-GCP models, return empty SRT (caller should use generate_transcript)
     return "", "", 0, 0
 
@@ -355,6 +368,14 @@ def generate_transcript(
 
     if model_name.startswith("gcp-"):
         text, srt_content, in_tok, out_tok = _transcribe_gcp(
+            model_name, audio_path, url, language, duration_seconds
+        )
+        if srt:
+            return srt_content, in_tok, out_tok
+        return text, in_tok, out_tok
+
+    if model_name == "aws-transcribe":
+        text, srt_content, in_tok, out_tok = _transcribe_aws(
             model_name, audio_path, url, language, duration_seconds
         )
         if srt:
@@ -926,6 +947,165 @@ def _transcribe_gcp(
             pseudo_out_tok = total_pseudo - pseudo_in_tok
 
         return t_text, t_srt, pseudo_in_tok, pseudo_out_tok
+
+
+def _transcribe_aws(
+    model_name: str,
+    audio_path: str,
+    url: str,
+    language: str = "en",
+    duration_seconds: Optional[float] = None,
+) -> Tuple[str, str, int, int]:
+    """
+    Transcribes audio using AWS Transcribe (Batch).
+    Returns (transcript_text, srt_content, input_tokens, output_tokens).
+    Requires 'YTD_S3_BUCKET_NAME' env var for temporary storage.
+    """
+    if boto3 is None:
+        return (
+            "Error: boto3 is required for AWS Transcribe. "
+            "Install with `pip install '.[aws]'`",
+            "",
+            0,
+            0,
+        )
+
+    bucket_name = os.environ.get("YTD_S3_BUCKET_NAME")
+    if not bucket_name:
+        return (
+            "Error: YTD_S3_BUCKET_NAME environment variable is required for "
+            "AWS Transcribe.",
+            "",
+            0,
+            0,
+        )
+
+    region = os.environ.get("AWS_REGION", "us-east-1")
+    s3_client = boto3.client("s3", region_name=region)
+    transcribe_client = boto3.client("transcribe", region_name=region)
+
+    job_name = f"ytd_transcribe_{uuid.uuid4()}"
+    s3_key = f"temp_audio/{job_name}.m4a"
+
+    print(f"Uploading audio to s3://{bucket_name}/{s3_key}...")
+    try:
+        s3_client.upload_file(audio_path, bucket_name, s3_key)
+    except ClientError as e:
+        return f"Error uploading to S3: {e}", "", 0, 0
+
+    s3_uri = f"s3://{bucket_name}/{s3_key}"
+
+    if language == "en":
+        language_code = "en-US"
+    else:
+        # AWS uses different codes sometimes, but en-US, es-ES etc are common
+        # Simple mapping for now
+        language_code = (
+            language if "-" in language else f"{language}-{language.upper()}"
+        )
+
+    print(f"Starting AWS Transcribe job: {job_name}...")
+    try:
+        transcribe_client.start_transcription_job(
+            TranscriptionJobName=job_name,
+            Media={"MediaFileUri": s3_uri},
+            MediaFormat="m4a",
+            LanguageCode=language_code,
+            OutputBucketName=bucket_name,
+            OutputKey=f"transcripts/{job_name}.json",
+            Settings={
+                "ShowAlternatives": False,
+            },
+        )
+    except ClientError as e:
+        return f"Error starting Transcribe job: {e}", "", 0, 0
+
+    # Polling
+    print("Waiting for AWS Transcribe job to complete...")
+    while True:
+        try:
+            status_resp = transcribe_client.get_transcription_job(
+                TranscriptionJobName=job_name
+            )
+            status = status_resp["TranscriptionJob"]["TranscriptionJobStatus"]
+            if status in ["COMPLETED", "FAILED"]:
+                break
+        except ClientError as e:
+            print(f"Error polling job status: {e}")
+        time.sleep(10)
+
+    if status == "FAILED":
+        reason = status_resp["TranscriptionJob"].get("FailureReason", "Unknown failure")
+        return f"AWS Transcribe job failed: {reason}", "", 0, 0
+
+    # Download result
+    transcript_key = f"transcripts/{job_name}.json"
+    print(f"Downloading transcript from s3://{bucket_name}/{transcript_key}...")
+    try:
+        obj = s3_client.get_object(Bucket=bucket_name, Key=transcript_key)
+        transcript_json = json.loads(obj["Body"].read().decode("utf-8"))
+    except Exception as e:
+        return f"Error downloading transcript from S3: {e}", "", 0, 0
+
+    # Cleanup
+    try:
+        s3_client.delete_object(Bucket=bucket_name, Key=s3_key)
+        s3_client.delete_object(Bucket=bucket_name, Key=transcript_key)
+    except Exception as e:
+        print(f"Warning: Cleanup failed: {e}")
+
+    # Parse JSON for text and SRT
+    results = transcript_json.get("results", {})
+    transcript_text = ""
+    transcripts = results.get("transcripts", [])
+    if transcripts:
+        transcript_text = transcripts[0].get("transcript", "")
+
+    # For SRT, we need word-level timestamps
+    items = results.get("items", [])
+    srt_entries = []
+    srt_counter = 1
+
+    current_segment_words = []
+    current_segment_len = 0
+
+    for item in items:
+        if item.get("type") == "punctuation":
+            if current_segment_words:
+                # Add punctuation to the last word
+                word, start, end = current_segment_words.pop()
+                current_segment_words.append(
+                    (word + item["alternatives"][0]["content"], start, end)
+                )
+            continue
+
+        word = item["alternatives"][0]["content"]
+        start_sec = float(item["start_time"])
+        end_sec = float(item["end_time"])
+
+        current_segment_words.append((word, start_sec, end_sec))
+        current_segment_len += len(word) + 1
+
+        if current_segment_len > 80:
+            seg_text = " ".join([w[0] for w in current_segment_words])
+            seg_start = _format_srt_time(current_segment_words[0][1])
+            seg_end = _format_srt_time(current_segment_words[-1][2])
+            srt_entries.append(
+                f"{srt_counter}\n{seg_start} --> {seg_end}\n{seg_text}\n"
+            )
+            srt_counter += 1
+            current_segment_words = []
+            current_segment_len = 0
+
+    if current_segment_words:
+        seg_text = " ".join([w[0] for w in current_segment_words])
+        seg_start = _format_srt_time(current_segment_words[0][1])
+        seg_end = _format_srt_time(current_segment_words[-1][2])
+        srt_entries.append(f"{srt_counter}\n{seg_start} --> {seg_end}\n{seg_text}\n")
+
+    srt_content = "\n".join(srt_entries)
+
+    return transcript_text, srt_content, 0, 0
 
 
 def generate_summary(

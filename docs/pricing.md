@@ -101,7 +101,9 @@ const pricingData = {
         {"id": "imagen-4-ultra", "vendor": "google", "name": "Imagen 4 Ultra", "input": 0.0, "output": 60.0},
         {"id": "imagen-4.0-ultra-generate-001", "vendor": "google", "name": "Imagen 4.0 Ultra Generate 001", "input": 0.0, "output": 60.0},
         {"id": "imagen-4.0-fast-generate-001", "vendor": "google", "name": "Imagen 4.0 Fast Generate 001", "input": 0.0, "output": 20.0},
-        {"id": "chirp_3", "vendor": "google", "name": "Chirp 3 (STT)", "input": 0.012, "output": 0.0}
+        {"id": "chirp_3", "vendor": "google", "name": "Chirp 3 (STT)*", "input": 40.0, "output": 40.0},
+        {"id": "aws-polly", "vendor": "amazon", "name": "AWS Polly*", "input": 32.0, "output": 32.0},
+        {"id": "gcp-chirp3-tts", "vendor": "google", "name": "GCP Chirp 3 (TTS)*", "input": 32.0, "output": 32.0}
     ]
 };
 
@@ -157,3 +159,6 @@ populateTable(pricingData.prices);
 
 > [!NOTE]
 > Prices last updated on **2026-02-06**. All values are per 1 million tokens unless otherwise specified.
+> required for non-token based models (marked with \*):
+>
+> - **Audio/Character Pricing**: Models priced by minute or character are converted to "per 1M tokens" assuming ~4 chars/token or ~200 tokens/minute. The estimated cost is split 50/50 between input and output for comparison.

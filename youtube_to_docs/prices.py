@@ -622,13 +622,34 @@ PRICES = {
         {
             "id": "chirp_3",
             "vendor": "google",
-            "name": "Chirp 3 (STT)",
-            # $0.016 per minute ~ $0.96 per hour. Actually pricing is per minute.
-            "input": 0.016,
-            # Splitting cost 50/50 between input and output tokens for comparison
-            # with TTS models.
-            # 1M tokens = 1 minute total.
-            "output": 0.016,
+            "name": "Chirp 3 (STT)*",
+            # $0.016 per minute ~ $0.96 per hour.
+            # 1M tokens ≈ 5000 minutes => $80.00
+            # Splitting cost 50/50 between input and output tokens for comparison.
+            "input": 40.0,
+            "output": 40.0,
+            "input_cached": None,
+        },
+        {
+            "id": "aws-polly",
+            "vendor": "amazon",
+            "name": "AWS Polly*",
+            # $16.00 per 1 million characters.
+            # 1M tokens ≈ 4M characters => $64.00
+            # Splitting cost 50/50 between input and output tokens for comparison.
+            "input": 32.0,
+            "output": 32.0,
+            "input_cached": None,
+        },
+        {
+            "id": "gcp-chirp3-tts",
+            "vendor": "google",
+            "name": "GCP Chirp 3 (TTS)*",
+            # $16.00 per 1 million characters.
+            # 1M tokens ≈ 4M characters => $64.00
+            # Splitting cost 50/50 between input and output tokens for comparison.
+            "input": 32.0,
+            "output": 32.0,
             "input_cached": None,
         },
     ],

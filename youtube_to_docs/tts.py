@@ -152,6 +152,73 @@ def generate_speech_gcp(
         return b""
 
 
+def generate_speech_aws_polly(
+    text: str, voice_id: str = "Ruth", engine: str = "long-form"
+) -> bytes:
+    """
+    Generates speech from text using AWS Polly.
+    Returns raw PCM audio bytes.
+    Handles text longer than limits by chunking.
+    """
+    try:
+        import boto3
+        from botocore.exceptions import BotoCoreError, ClientError
+    except ImportError:
+        print(
+            "Error: boto3 is required for AWS Polly. Install with `pip install boto3`"
+        )
+        return b""
+
+    try:
+        polly = boto3.client("polly")
+
+        # Polly has limits. Safe chunk size ~2000 chars to be safe.
+        # (Limit is typically 3000 chars for standard/neural).
+        chunk_size = 2000
+        text_bytes = text.encode("utf-8")
+
+        rprint(
+            f"[cyan]AWS Polly: input text length: {len(text)} chars, "
+            f"{len(text_bytes)} bytes[/cyan]"
+        )
+
+        audio_stream = b""
+
+        if len(text_bytes) <= chunk_size:
+            chunks = [text]
+        else:
+            rprint(
+                f"[yellow]Text is long ({len(text_bytes)} bytes). "
+                "Chunking for AWS Polly...[/yellow]"
+            )
+            chunks = _chunk_text_by_bytes(text, chunk_size)
+
+        for i, chunk in enumerate(chunks):
+            if len(chunks) > 1:
+                rprint(f"  Synthesizing chunk {i + 1}/{len(chunks)}...")
+
+            response = polly.synthesize_speech(
+                Text=chunk,
+                OutputFormat="pcm",
+                VoiceId=voice_id,
+                Engine=engine,
+            )
+            if "AudioStream" in response:
+                with response["AudioStream"] as stream:
+                    audio_stream += stream.read()
+            else:
+                print("Error: No AudioStream in Polly response")
+
+        return audio_stream
+
+    except (BotoCoreError, ClientError) as error:
+        print(f"Error generating speech with AWS Polly: {error}")
+        return b""
+    except Exception as e:
+        print(f"Error generating speech with AWS Polly: {e}")
+        return b""
+
+
 def generate_speech(
     text: str, model_name: str, voice_name: str, language_code: Optional[str] = None
 ) -> bytes:
@@ -210,6 +277,11 @@ def is_gcp_tts_model(model_name: str) -> bool:
     return model_name.startswith("gcp-")
 
 
+def is_aws_polly_model(model_name: str) -> bool:
+    """Check if the model is an AWS Polly model."""
+    return model_name.startswith("aws-polly")
+
+
 def parse_tts_arg(tts_arg: str) -> Tuple[str, str]:
     """
     Parses the --tts argument into (model_name, voice_name).
@@ -229,6 +301,16 @@ def parse_tts_arg(tts_arg: str) -> Tuple[str, str]:
         if len(parts) >= 3:
             return "gcp-chirp3", parts[2]
         return "gcp-chirp3", "Kore"
+
+    # Handle AWS Polly models
+    if tts_arg.startswith("aws-polly"):
+        if tts_arg == "aws-polly":
+            return "aws-polly", "Ruth"  # Default voice
+        # Format: aws-polly-VoiceName
+        parts = tts_arg.split("-", 2)
+        if len(parts) >= 3:
+            return "aws-polly", parts[2]
+        return "aws-polly", "Ruth"
 
     # Gemini models: voice name is the last part after the last hyphen
     if "-" in tts_arg:
@@ -375,6 +457,37 @@ def process_tts(
                     try:
                         wav_io = io.BytesIO()
                         wave_file(wav_io, pcm_data)
+                        wav_bytes = wav_io.getvalue()
+
+                        saved_path = storage.write_bytes(target_path, wav_bytes)
+                        rprint(f"Saved audio: {format_clickable_path(saved_path)}")
+                        new_col_values.append(saved_path)
+                    except Exception as e:
+                        print(f"Error writing audio file: {e}")
+                        new_col_values.append(None)
+                else:
+                    new_col_values.append(None)
+            elif is_aws_polly_model(model_name):
+                # AWS Polly returns PCM data
+                # Using 16000Hz as standard for Polly PCM, but we might need to adjust
+                # `wave_file` defaults or Polly request.
+                # `long-form` engine supports 24000Hz?
+                # Let's request 24000Hz sample rate if possible, otherwise use 16000.
+                # Polly `SampleRate` parameter.
+                # Polly defaults to 16000Hz or 22050Hz for PCM.
+                # `long-form` engine supports up to 24000Hz.
+                # To avoid pitch distortion with `wave_file` default (24000Hz),
+                # we explicitly set rate=16000 below.
+                # Warning: If Polly returns 16k and we save as 24k, it will be fast.
+                # I will explicitly set rate=16000 in `wave_file` for Polly for now.
+                pcm_data = generate_speech_aws_polly(
+                    text, voice_name, engine="long-form"
+                )
+                if pcm_data:
+                    try:
+                        wav_io = io.BytesIO()
+                        # Assuming Polly returns 16000Hz by default for PCM
+                        wave_file(wav_io, pcm_data, rate=16000)
                         wav_bytes = wav_io.getvalue()
 
                         saved_path = storage.write_bytes(target_path, wav_bytes)

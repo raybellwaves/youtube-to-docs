@@ -44,7 +44,8 @@ def process_video(
         model: The LLM model to use for speaker extraction, Q&A, and summarization
             (e.g., 'gemini-3-flash-preview'). Can be a comma-separated list.
         tts_model: The TTS model and voice to use
-            (e.g., 'gemini-2.5-flash-preview-tts-Kore').
+            (e.g., 'gemini-2.5-flash-preview-tts-Kore', 'gcp-chirp3-Kore',
+            'aws-polly-Ruth').
         infographic_model: The image model to use for generating an infographic
             (e.g., 'gemini-2.5-flash-image').
         alt_text_model: The LLM model to use for generating alt text for the

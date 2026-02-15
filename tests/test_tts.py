@@ -6,7 +6,9 @@ import polars as pl
 
 from youtube_to_docs.tts import (
     generate_speech,
+    generate_speech_aws_polly,
     generate_speech_gcp,
+    is_aws_polly_model,
     is_gcp_tts_model,
     parse_tts_arg,
     process_tts,
@@ -278,6 +280,105 @@ class TestGCPTTS(unittest.TestCase):
 
         # Verify new column was created
         self.assertIn("Summary Audio File 1 gcp-chirp3-Kore File", updated_df.columns)
+
+        # Verify WAV file was written
+        mock_storage.write_bytes.assert_called_once()
+        args, _ = mock_storage.write_bytes.call_args
+        self.assertTrue(args[0].endswith(".wav"))
+        self.assertTrue(args[1].startswith(b"RIFF"))
+
+
+class TestAWSPolly(unittest.TestCase):
+    """Tests for AWS Polly TTS functionality."""
+
+    def test_parse_tts_arg_aws_simple(self):
+        """Test parsing aws-polly without a voice (defaults to Ruth)."""
+        model, voice = parse_tts_arg("aws-polly")
+        self.assertEqual(model, "aws-polly")
+        self.assertEqual(voice, "Ruth")
+
+    def test_parse_tts_arg_aws_with_voice(self):
+        """Test parsing aws-polly with explicit voice."""
+        model, voice = parse_tts_arg("aws-polly-Joanna")
+        self.assertEqual(model, "aws-polly")
+        self.assertEqual(voice, "Joanna")
+
+    def test_is_aws_polly_model(self):
+        """Test AWS Polly model detection helper."""
+        self.assertTrue(is_aws_polly_model("aws-polly"))
+        self.assertTrue(is_aws_polly_model("aws-polly-Ruth"))
+        self.assertFalse(is_aws_polly_model("gcp-chirp3"))
+        self.assertFalse(is_aws_polly_model("gemini-2.5-flash-preview-tts"))
+
+    @patch("youtube_to_docs.tts.boto3", create=True)
+    def test_generate_speech_aws_polly_success(self, mock_boto3):
+        """Test successful AWS Polly TTS generation."""
+        # Setup mock client and response
+        mock_client = MagicMock()
+        mock_boto3.client.return_value = mock_client
+
+        mock_response = {"AudioStream": MagicMock()}
+        # Simulate stream read
+        mock_response["AudioStream"].__enter__.return_value = MagicMock()
+        mock_response[
+            "AudioStream"
+        ].__enter__.return_value.read.return_value = b"fake_pcm_data"
+
+        mock_client.synthesize_speech.return_value = mock_response
+
+        # Need to ensure import inside function uses the mock
+        with patch.dict("sys.modules", {"boto3": mock_boto3}):
+            # Execute
+            audio_data = generate_speech_aws_polly("Hello world", "Ruth")
+
+        # Verify
+        self.assertEqual(audio_data, b"fake_pcm_data")
+        mock_client.synthesize_speech.assert_called_once()
+        args, kwargs = mock_client.synthesize_speech.call_args
+        self.assertEqual(kwargs["Text"], "Hello world")
+        self.assertEqual(kwargs["VoiceId"], "Ruth")
+        self.assertEqual(kwargs["Engine"], "long-form")
+        self.assertEqual(kwargs["OutputFormat"], "pcm")
+
+    def test_generate_speech_aws_polly_import_error(self):
+        """Test AWS Polly TTS when boto3 is not installed."""
+        with patch.dict("sys.modules", {"boto3": None}):
+            audio_data = generate_speech_aws_polly("Hello", "Ruth")
+            self.assertEqual(audio_data, b"")
+
+    @patch("youtube_to_docs.tts.generate_speech_aws_polly")
+    def test_process_tts_with_aws_polly_model(self, mock_generate_speech_aws):
+        """Test process_tts routes to AWS Polly for aws-polly models."""
+        df = pl.DataFrame(
+            {
+                "Summary File 1": ["/path/to/summary.md"],
+            }
+        )
+
+        mock_storage = MagicMock()
+
+        def exists_side_effect(path):
+            if path.endswith(".md"):
+                return True
+            return False
+
+        mock_storage.exists.side_effect = exists_side_effect
+        mock_storage.read_text.return_value = "Summary text"
+        mock_storage.write_bytes.return_value = "/saved/path.wav"
+
+        # Return valid PCM data
+        mock_generate_speech_aws.return_value = b"1234"
+
+        # Execute with AWS Polly model
+        updated_df = process_tts(df, "aws-polly", mock_storage, "/tmp")
+
+        # Verify AWS function was called
+        mock_generate_speech_aws.assert_called_once_with(
+            "Summary text", "Ruth", engine="long-form"
+        )
+
+        # Verify new column was created
+        self.assertIn("Summary Audio File 1 aws-polly File", updated_df.columns)
 
         # Verify WAV file was written
         mock_storage.write_bytes.assert_called_once()

@@ -136,7 +136,9 @@ def main(args_list: list[str] | None = None) -> None:
             "Format: `{model}-{voice}` e.g. `gemini-2.5-flash-preview-tts-Kore` \n"
             "or `gemini-2.5-pro-preview-tts-Kore` \n"
             "GCP Cloud TTS: `gcp-chirp3` or `gcp-chirp3-{voice}` "
-            "(e.g. `gcp-chirp3-Kore`)"
+            "(e.g. `gcp-chirp3-Kore`)\n"
+            "AWS Polly: `aws-polly` (defaults to Ruth) or `aws-polly-{voice}` "
+            "(e.g. `aws-polly-Ruth`)"
         ),
     )
     parser.add_argument(

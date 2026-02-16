@@ -33,6 +33,7 @@ nav:
   - How It Works: how-this-works.md
   - Performance: performance.md
   - Pricing: pricing.md
+  - Notebooks: notebooks.md
 
 exclude_docs: |
   development.md

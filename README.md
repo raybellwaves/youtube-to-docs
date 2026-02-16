@@ -1,5 +1,6 @@
 # youtube-to-docs
 [![PyPI version](https://img.shields.io/pypi/v/youtube-to-docs.svg)](https://pypi.org/project/youtube-to-docs/)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/DoIT-Artificial-Intelligence/youtube-to-docs/blob/main/notebooks/getting_started.ipynb)
 
 Click on the image below to see a demo of YouTube to docs:
 
@@ -49,5 +50,9 @@ Install as a Gemini CLI extension:
 ```bash
 gemini extensions install https://github.com/DoIT-Artificial-Intelligence/youtube-to-docs.git
 ```
+
+### Notebooks
+
+Try out `youtube-to-docs` in your browser with our [Getting Started](https://colab.research.google.com/github/DoIT-Artificial-Intelligence/youtube-to-docs/blob/main/notebooks/getting_started.ipynb) Google Colab notebook.
 
 *Created with the help of AI. All artifacts have been checked and work as expected.*
